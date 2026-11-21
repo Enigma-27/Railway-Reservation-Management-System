@@ -1,4 +1,4 @@
-import { API_CONFIG } from '../config/api.config';
+import { API_CONFIG, isServiceMock } from '../config/api.config';
 import { AdminAuthUser } from '../types/user';
 import { httpRequest } from './http.client';
 import { mockStore, simulateLatency } from './mock.client';
@@ -6,7 +6,7 @@ import { staffApiService } from '../../services/staffApiService';
 
 export const authService = {
   async adminLogin(email: string, password: string): Promise<AdminAuthUser> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('auth')) {
       await simulateLatency();
       // Look for user with role ADMIN in mock data
       const admin = mockStore.getUsers().find(
@@ -85,11 +85,31 @@ export const authService = {
   },
 
 
+  /** Own profile from the server (email is not kept in the stored admin session). */
+  async getOwnProfile(): Promise<{ userId: number; name: string; email: string; role: string }> {
+    return httpRequest<{ userId: number; name: string; email: string; role: string }>('/api/auth/me');
+  },
+
+  /**
+   * Change the logged-in user's own password: POST /api/auth/change-password.
+   * A wrong current password comes back as HTTP 400 (code WRONG_CURRENT_PASSWORD), so the session stays signed in.
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    if (isServiceMock('auth')) {
+      throw new Error('Changing the password needs the live server (mock mode is on).');
+    }
+    await httpRequest<{ changed: boolean }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  },
+
   getCurrentUser(): AdminAuthUser | null {
     const raw = localStorage.getItem(API_CONFIG.STORAGE_KEYS.USER);
     if (!raw) return null;
     try {
-      return JSON.parse(raw) as AdminAuthUser;
+      const user = JSON.parse(raw);
+      return user && user.role === 'ADMIN' ? (user as AdminAuthUser) : null;
     } catch {
       return null;
     }
@@ -119,7 +139,7 @@ export const authService = {
         return staffUser;
       }
     } catch (apiErr: any) {
-      if (!API_CONFIG.USE_MOCK) {
+      if (!isServiceMock('auth')) {
         throw apiErr;
       }
       // If mock mode is explicitly true, allow mock fallback
@@ -149,11 +169,11 @@ export const authService = {
   getStaffUser(): { name: string; employeeId: string } | null {
     const raw = localStorage.getItem(API_CONFIG.STORAGE_KEYS.STAFF_USER);
     if (!raw) return null;
-    try { return JSON.parse(raw); } catch { return null; }
+    try { const u = JSON.parse(raw); return u && u.role === 'STAFF' ? u : null; } catch { return null; }
   },
 
   isStaffAuthenticated(): boolean {
-    return !!localStorage.getItem(API_CONFIG.STORAGE_KEYS.STAFF_TOKEN);
+    return !!localStorage.getItem(API_CONFIG.STORAGE_KEYS.STAFF_TOKEN) && this.getStaffUser() !== null;
   },
 
   staffLogout(): void {

@@ -20,14 +20,13 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { data, activeStaff, switchStaff, resetData } = useStaff();
+  const { data, activeStaff } = useStaff();
 
-  const trainId = activeStaff.assignedTrainId || 101;
-  const manifest = data.manifest.filter((m) => m.trainId === trainId);
-  const unverifiedCount = manifest.filter((m) => m.boardingStatus === 'NOT_VERIFIED').length;
-  const vacancyCount = data.vacancies.filter((v) => v.trainId === trainId).length;
-  const fineCount = data.fines.length;
-  const emergencyCount = data.incidents.filter((i) => i.status !== 'RESOLVED').length;
+  // Only counts that exist on the server chart are shown (no staff read routes for the other lists)
+  const unverifiedCount = data.manifest.filter((m) => m.boardingStatus === 'NOT_VERIFIED').length;
+  const vacancyCount = 0;
+  const fineCount = 0;
+  const emergencyCount = 0;
 
   const navSections = [
     {
@@ -161,33 +160,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
               </span>
             </p>
           </div>
-          <button
-            onClick={() => {
-              if (window.confirm('Reset all demo staff data back to mock fixtures?')) {
-                resetData();
-              }
-            }}
-            title="Reset Mock State"
-            className="text-slate-500 hover:text-orange-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer flex-shrink-0"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Personnel Switcher */}
-        <div className="relative">
-          <select
-            value={activeStaff.staffId}
-            onChange={(e) => switchStaff(Number(e.target.value))}
-            className="w-full appearance-none bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 pr-7 text-[12px] text-slate-200 font-medium outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 cursor-pointer transition-colors"
-          >
-            {data.staffList.map((s) => (
-              <option key={s.staffId} value={s.staffId} className="bg-slate-900">
-                {s.name} — {s.designation.split(' ')[0]}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
         </div>
       </div>
     </aside>

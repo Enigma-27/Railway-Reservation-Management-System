@@ -1,11 +1,11 @@
-import { API_CONFIG } from '../config/api.config';
+import { isServiceMock } from '../config/api.config';
 import { Station } from '../types/station';
 import { httpRequest } from './http.client';
 import { mockStore, simulateLatency } from './mock.client';
 
 export const stationService = {
   async getStations(): Promise<Station[]> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       return mockStore.getStations();
     }
@@ -13,7 +13,7 @@ export const stationService = {
   },
 
   async createStation(payload: Omit<Station, 'stationId'>): Promise<Station> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getStations();
       const newId = Math.max(...list.map((s) => s.stationId), 0) + 1;
@@ -39,7 +39,7 @@ export const stationService = {
   },
 
   async updateStation(stationId: number, payload: Partial<Omit<Station, 'stationId'>>): Promise<Station> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getStations();
       const idx = list.findIndex((s) => s.stationId === stationId);
@@ -69,7 +69,7 @@ export const stationService = {
   },
 
   async deleteStation(stationId: number): Promise<void> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getStations();
       const target = list.find((s) => s.stationId === stationId);

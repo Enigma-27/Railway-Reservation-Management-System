@@ -55,6 +55,7 @@ async function runSimulator() {
     );
 
     let totalBookingsMade = 0;
+    let skippedRuns = 0;
     // Check which days in the window have NO bookings at all (newly created days)
     const [daysWithBookings] = await pool.query(`
       SELECT DISTINCT DATE_FORMAT(ts.journey_date, '%Y-%m-%d') AS jd
@@ -89,8 +90,12 @@ async function runSimulator() {
         for (const sched of sample) {
           const fillLevel = FILL_SPREAD_PATTERNS[patternIdx % FILL_SPREAD_PATTERNS.length];
           patternIdx++;
-          const { bookingsCount } = await fillScheduleBookings(pool, sched.schedule_id, fillLevel, passengerPool, userPool);
+          const { bookingsCount, skipped } = await fillScheduleBookings(pool, sched.schedule_id, fillLevel, passengerPool, userPool);
           totalBookingsMade += bookingsCount;
+          if (skipped) {
+            skippedRuns++;
+            console.log(`  - Skipped run ${sched.schedule_id} (${skipped})`);
+          }
         }
       }
     }
@@ -124,6 +129,7 @@ async function runSimulator() {
     console.log(`Window:              ${windowDates[0]} to ${windowDates[windowDates.length - 1]} (${windowDates.length} days)`);
     console.log(`Runs Created:        ${runsCreated}`);
     console.log(`Bookings Made:       ${totalBookingsMade}`);
+    console.log(`Runs Skipped:        ${skippedRuns} (already left or not bookable)`);
     console.log(`Cancellations:       ${cancellationsCount}`);
     console.log(`Charts Prepared:     ${chartsPrepared}`);
     console.log(`Inventory Audit:     0 mismatches of ${audit.totalInventories}`);

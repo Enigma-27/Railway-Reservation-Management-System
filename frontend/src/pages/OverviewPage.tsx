@@ -2,7 +2,7 @@ import React from 'react';
 import { useStaff } from '../context/StaffContext';
 import { StatCard } from '../components/StatCard';
 import { Train, CheckCircle2, UserX, Armchair, Receipt, ArrowRight } from 'lucide-react';
-import { formatCurrency } from '../utils/formatters';
+import { formatIndiaDateTime } from '../utils/formatters';
 
 interface OverviewPageProps {
   setActiveTab: (tab: string) => void;
@@ -11,15 +11,14 @@ interface OverviewPageProps {
 export const OverviewPage: React.FC<OverviewPageProps> = ({ setActiveTab }) => {
   const { data, activeStaff, activeTrain, activeSchedule } = useStaff();
 
-  const trainId = activeStaff.assignedTrainId || 101;
-  const manifest = data.manifest.filter(m => m.trainId === trainId);
+  // Everything below comes from the server chart / assignment. Nothing is filled in with sample values.
+  const manifest = data.manifest;
   const totalPassengers = manifest.length;
   const boardedCount = manifest.filter(m => m.boardingStatus === 'BOARDED').length;
   const noShowCount = manifest.filter(m => m.boardingStatus === 'NO_SHOW').length;
   const pendingCount = manifest.filter(m => m.boardingStatus === 'NOT_VERIFIED').length;
-  const vacancies = data.vacancies.filter(v => v.trainId === trainId).length;
   const racCount = manifest.filter(m => m.bookingStatus === 'RAC').length;
-  const totalFines = data.fines.reduce((acc, f) => acc + Number(f.amount), 0);
+  const delayMinutes = activeSchedule?.delayMinutes ?? 0;
 
   const station = data.stations.find(s => s.stationId === activeStaff.assignedStationId);
 
@@ -52,17 +51,17 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ setActiveTab }) => {
         />
 
         <StatCard
-          title="Vacant Berths"
-          value={vacancies}
-          subtitle={`${racCount} RAC in queue`}
+          title="RAC Passengers"
+          value={racCount}
+          subtitle="In the prepared chart"
           icon={Armchair}
           color="amber"
         />
 
         <StatCard
-          title="Fines Collected"
-          value={formatCurrency(totalFines)}
-          subtitle={`${data.fines.length} penalties issued`}
+          title="Train Delay"
+          value={`${delayMinutes} min`}
+          subtitle={activeSchedule?.status || 'No run assigned'}
           icon={Receipt}
           color="orange"
         />
@@ -81,7 +80,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ setActiveTab }) => {
               Officer: <strong className="text-slate-800 font-semibold">{activeStaff.name}</strong>
               {' · '}<span className="text-slate-600">{activeStaff.designation}</span>
               {' · '}<span className="font-mono text-[#2259c2] font-bold">{activeStaff.employeeId}</span>
-              {' · '}<strong className="text-slate-800 font-semibold">{station?.stationName || 'NDLS'}</strong>
+              {' · '}<strong className="text-slate-800 font-semibold">{station?.stationName || '—'}</strong>
             </p>
           </div>
           <div className="flex items-center gap-2.5">
@@ -107,24 +106,25 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ setActiveTab }) => {
             <div className="text-sm font-extrabold text-slate-900">
               {activeStaff.assignedCoaches.length ? activeStaff.assignedCoaches.join(', ') : 'All Coaches'}
             </div>
+            <div className="text-[10px] text-slate-400 mt-1">Per-coach duty is not recorded in the database.</div>
           </div>
           <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Operational Status</div>
             <div className={`text-sm font-extrabold ${activeSchedule?.status === 'DELAYED' ? 'text-rose-600' : 'text-emerald-600'}`}>
-              {activeSchedule?.status || 'ON_TIME'}
+              {activeSchedule?.status || '—'}
               {activeSchedule?.delayMinutes ? <span className="text-xs font-semibold ml-1 text-rose-500">(+{activeSchedule.delayMinutes} min)</span> : null}
             </div>
           </div>
           <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Current Sector</div>
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Journey Date</div>
             <div className="text-sm font-extrabold text-slate-900">
-              {activeSchedule?.currentStation || 'Mumbai Central'} → {activeSchedule?.nextStation || 'Surat'}
+              {activeSchedule?.journeyDate ? formatIndiaDateTime(activeSchedule.journeyDate) : '—'}
             </div>
           </div>
           <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Platform</div>
             <div className="text-sm font-extrabold text-slate-900 font-mono">
-              Platform #{activeSchedule?.platformNumber || '1'}
+              {activeSchedule?.platformNumber ? `Platform #${activeSchedule.platformNumber}` : '—'}
             </div>
           </div>
         </div>

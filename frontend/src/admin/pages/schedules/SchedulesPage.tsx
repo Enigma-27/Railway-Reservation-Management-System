@@ -314,18 +314,19 @@ export const SchedulesPage: React.FC = () => {
             >
               <span>{isPrepared ? 'Prepared' : 'Prepare Chart'}</span>
             </button>
+            {/* No server route for updating or deleting a run: shown disabled with the reason */}
             <button
-              onClick={() => handleOpenDelayModal(row)}
-              className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
-              title="Update Live Delay"
+              disabled
+              className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed flex items-center gap-1"
+              title="This feature is not available yet. Delay is logged by the ticket collector in the staff portal; the server has no route to edit a run here."
             >
-              <Clock className="w-3.5 h-3.5 text-orange-600" />
+              <Clock className="w-3.5 h-3.5" />
               <span>Delay</span>
             </button>
             <button
-              onClick={() => setDeletingSchedule(row)}
-              className="p-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors cursor-pointer"
-              title="Delete Schedule"
+              disabled
+              className="p-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed"
+              title="This feature is not available yet. The server has no route to delete a run."
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -353,11 +354,12 @@ export const SchedulesPage: React.FC = () => {
               <span>Prepare Chart</span>
             </button>
             <button
-              onClick={() => setCreateModalOpen(true)}
-              className="btn-secondary"
+              disabled
+              title="This feature is not available yet. Runs are created by the daily simulator; the server has no route to create one here."
+              className="btn-secondary opacity-50 cursor-not-allowed"
             >
               <Plus className="w-4 h-4" />
-              <span>Schedule Run</span>
+              <span>This feature is not available yet.</span>
             </button>
           </div>
         }
@@ -726,18 +728,6 @@ export const SchedulesPage: React.FC = () => {
                     <span className="text-[11px] text-slate-500 block">Active Holds Cancelled</span>
                     <span className="font-bold text-sm text-slate-800">
                       {chartResult.summary.activeHoldsCancelled ?? 0}
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-white/80 border border-emerald-200">
-                    <span className="text-[11px] text-slate-500 block">Unused Quota Seats Released</span>
-                    <span className="font-bold text-sm text-slate-800">
-                      {chartResult.summary.unusedQuotaSeatsReleased ?? 0}
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-white/80 border border-emerald-200">
-                    <span className="text-[11px] text-slate-500 block">Auto-Upgrades Processed</span>
-                    <span className="font-bold text-sm text-slate-800">
-                      {chartResult.summary.autoUpgradesProcessed ?? 0}
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white/80 border border-emerald-200">

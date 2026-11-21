@@ -173,7 +173,7 @@ async function cleanupTestObjects(connection) {
     }
 
     const [finalObjects] = await connection.query('SHOW FULL TABLES;');
-    console.log(`\nFinal SHOW FULL TABLES count in railway_db: ${finalObjects.length} (37 base tables + 5 views = 42)`);
+    console.log(`\nFinal SHOW FULL TABLES count in railway_db: ${finalObjects.length} (38 base tables + 6 views = 44)`);
 
     console.log('\n--- Step 9: Running MongoDB Loader (load-mongo.js) ---');
     execSync('node database/load/load-mongo.js', { stdio: 'inherit' });

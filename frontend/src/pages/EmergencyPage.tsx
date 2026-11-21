@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { useStaff } from '../context/StaffContext';
-import { StatusBadge } from '../components/StatusBadge';
-import { AlertOctagon, Check } from 'lucide-react';
+import { AlertOctagon } from 'lucide-react';
 import { Incident } from '../types';
 
 export const EmergencyPage: React.FC = () => {
-  const { data, activeStaff, reportIncident, resolveIncident } = useStaff();
+  const { activeStaff, reportIncident } = useStaff();
 
   const [type, setType] = useState('MEDICAL_EMERGENCY');
   const [severity, setSeverity] = useState<Incident['severity']>('HIGH');
@@ -29,6 +28,8 @@ export const EmergencyPage: React.FC = () => {
       });
 
       setDescription('');
+    } catch {
+      // The error message was already shown; the form keeps what was typed
     } finally {
       setSubmitting(false);
     }
@@ -96,7 +97,7 @@ export const EmergencyPage: React.FC = () => {
             <button
               type="submit"
               disabled={submitting}
-              className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 transition-all"
+              className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 transition-all"
             >
               <AlertOctagon className="w-4 h-4" />
               <span>{submitting ? 'Transmitting Alert...' : 'Transmit Critical SOS Alert'}</span>
@@ -105,58 +106,9 @@ export const EmergencyPage: React.FC = () => {
         </form>
       </div>
 
-      {/* Incident Log Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-        <h3 className="text-base font-bold text-slate-900 mb-4">Official Incident Action Log</h3>
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
-              <tr>
-                <th className="py-3 px-4">Severity</th>
-                <th className="py-3 px-4">Type</th>
-                <th className="py-3 px-4">Location</th>
-                <th className="py-3 px-4">Description</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Logged At</th>
-                <th className="py-3 px-4 text-right">Resolution</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {data.incidents.map(inc => (
-                <tr key={inc.incidentId} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-3 px-4">
-                    <StatusBadge status={inc.severity} size="sm" />
-                  </td>
-                  <td className="py-3 px-4 font-bold text-slate-900">{inc.type.replace(/_/g, ' ')}</td>
-                  <td className="py-3 px-4 font-medium text-slate-700">
-                    {inc.locationType} {inc.trainId ? `(Train ${inc.trainId})` : `(Station ${inc.stationId})`}
-                  </td>
-                  <td className="py-3 px-4 text-slate-600 max-w-sm">{inc.description}</td>
-                  <td className="py-3 px-4">
-                    <StatusBadge status={inc.status} size="sm" />
-                  </td>
-                  <td className="py-3 px-4 text-slate-500 text-[11px]">
-                    {new Date(inc.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    {inc.status !== 'RESOLVED' ? (
-                      <button
-                        onClick={() => resolveIncident(inc.incidentId)}
-                        className="px-2.5 py-1 bg-slate-50 hover:bg-emerald-600 text-slate-700 hover:text-white border border-slate-200 rounded-lg text-xs font-semibold transition-all ml-auto flex items-center gap-1.5"
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>Resolve</span>
-                      </button>
-                    ) : (
-                      <span className="text-[11px] text-emerald-600 font-semibold">Closed</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <p className="text-[11px] text-slate-400">
+        Incidents are saved on the server and sent to the control office. The server does not give officers a list of past incidents, so none are shown here.
+      </p>
     </div>
   );
 };

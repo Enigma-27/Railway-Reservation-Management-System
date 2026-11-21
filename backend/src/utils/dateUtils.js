@@ -26,7 +26,7 @@ function formatIndiaDateTime(val) {
   }
 
   if (isNaN(dateObj.getTime())) {
-    return '2026-10-18 00:00:00';
+    return null;
   }
 
   // Use Intl.DateTimeFormat with Asia/Kolkata to ensure accurate India time irrespective of host system timezone
@@ -65,7 +65,7 @@ function formatIndiaDate(val) {
 
   let dateObj = val instanceof Date ? val : new Date(val);
   if (isNaN(dateObj.getTime())) {
-    return '2026-10-18';
+    return null;
   }
 
   const formatter = new Intl.DateTimeFormat('en-GB', {

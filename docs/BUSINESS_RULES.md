@@ -108,7 +108,7 @@ Flow: search → choose class, quota and passenger count → Passenger Details �
 | RAJDHANI     | 1A × 1, 2A × 4, 3A × 10                | Yes                                                              |
 | SHATABDI     | EC × 1, CC × 10                        | Yes                                                              |
 | DURONTO ★    | 1A × 1, 2A × 2, 3A × 6, SL × 6         | Yes                                                              |
-| EXPRESS      | 1A × 1, 2A × 2, 3A × 4, SL × 8, 2S × 2 | Only if a train stays EXPRESS after the type review (section 17) |
+| EXPRESS      | 1A × 1, 2A × 2, 3A × 4, SL × 8, 2S × 2 | Only if a train stays EXPRESS after the type review (done in the seed data) |
 | VANDE_BHARAT | EC × 2, CC × 14                        | No. Kept for trains an admin may add later.                      |
 
 No train in the current data has 2S, so the 2S rules stay defined but unused.
@@ -367,7 +367,9 @@ Every adjustable number lives in one settings table in the database. Code reads 
 |------------------------------------------------|---------------------------------------------------------------------|--------------|
 | HOLD_MINUTES                                   | 10                                                                  | BR-B2        |
 | BOOKING_WINDOW_DAYS                            | 7                                                                   | BR-B1        |
-| MAX_PASSENGERS_PER_PNR / MAX_PASSENGERS_TATKAL | 6 / 4                                                               | BR-B3, BR-Q3 |
+| MAX_PASSENGERS_PER_PNR / MAX_PASSENGERS_TATKAL | 6 / 4 (enforced by the booking APIs and shown on the passenger screen)  | BR-B3, BR-Q3 |
+| SENIOR_AGE_MALE / SENIOR_AGE_FEMALE            | 60 / 45 (read by `sp_create_booking`)                               | BR-Q4        |
+| CONTACT_HELPLINE / CONTACT_EMAIL / CONTACT_ADDRESS | demo values for the Contact Us panel                           | -            |
 | TATKAL_OPEN_TIME_AC / \_NON_AC                 | 10:00 / 11:00, one day before origin departure                      | BR-Q7        |
 | TATKAL_PERCENT_AC / \_NON_AC                   | 30 / 10                                                             | BR-F5        |
 | QUOTA_SHARE_PERCENT                            | TATKAL 10, LADIES 10                                                | BR-Q10       |
@@ -396,72 +398,9 @@ Every adjustable number lives in one settings table in the database. Code reads 
 | MAX_TICKETS_PER_MONTH / \_AADHAAR_VERIFIED ★   | 12 / 24                                                             | BR-B15       |
 | DYNAMIC_FARE_THRESHOLD_PERCENT / MULTIPLIER ★  | 80 / 1.5 (used only when DYNAMIC_FARE_ENABLED is true, TATKAL only) | BR-F11       |
 
-## 16. What these rules need from the ER diagram
+## 16 to 18. Moved out
 
-The approved ER diagram already has payment retries, a refund table, per-passenger cancellation, queue positions, rule tables, staff duty, ID checks and MongoDB. These changes are still needed:
-
-| \#  | Need                                | Change                                                                                                                                                                                                                                  |
-|-----|-------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1   | Quota everywhere (BR-Q10)           | Add quota and requested_quota to BOOKING. Make seat counts per run, class and quota. RAC and WL counts only matter for GENERAL and TATKAL.                                                                                              |
-| 2   | Saved passengers                    | New SAVED_PASSENGER: owner user, name, age, gender, ID proof type, ID reference, disability type, berth preference. PASSENGER_BOOKING points to it and stores the concession type and proof chosen for that booking.                    |
-| 3   | Fare per passenger (BR-F, BR-R3)    | Add base, concession, reservation, superfast, Tatkal, GST, insurance and total to PASSENGER_BOOKING.                                                                                                                                    |
-| 4   | Seat hold (BR-B2)                   | New SEAT_HOLD: token, user, run, class, quota, seat counts, expiry.                                                                                                                                                                     |
-| 5   | Settings                            | New SETTING table (section 15).                                                                                                                                                                                                         |
-| 6   | Rule tables                         | FARE: slabs (class, from km, to km, rate), reservation and superfast per class, Tatkal percent. CONCESSION_RULE: add class, train type group, discount, proof types, active flag. REFUND_RULE: add flat minimum per class and clerkage. |
-| 7   | TDR refunds                         | TDR_FILING: reason enum, evidence reference, refund amount, reviewed by and at. REFUND links to either a cancellation or a TDR.                                                                                                         |
-| 8   | Run data in MySQL                   | TRAIN_SCHEDULE: delay_minutes, chart_prepared_at. New RUN_COACH_STATUS (run, coach, IN_SERVICE or OUT_OF_SERVICE).                                                                                                                      |
-| 9   | Route stops                         | ROUTE_STOP: day_offset (0, 1, 2…) and platform_no.                                                                                                                                                                                      |
-| 10  | Users                               | USER_ACCOUNT: account_status, aadhaar_verified, created_at. Role: PASSENGER, STAFF, ADMIN.                                                                                                                                              |
-| 11  | Staff reports                       | New CROWD_REPORT and CLEANLINESS_REPORT tables (BR-ST8).                                                                                                                                                                                |
-| 12  | Statuses and channel                | RESERVATION status adds BOARDED, NO_SHOW, CANCELLED. BOOKING.channel is ONLINE or COUNTER. PAYMENT method adds CASH.                                                                                                                    |
-| 13  | Food                                | Remove FOOD_ORDER, FOOD_ORDER_ITEM and FOOD_ITEM. Keep counter booking and MAINTENANCE.                                                                                                                                                 |
-| 14  | Maintenance                         | MAINTENANCE: type, status, coach or platform (exactly one), timestamps.                                                                                                                                                                 |
-| 15  | RAC sharing and overlap             | Seat overlap is checked through the booking’s boarding and destination stops. Two RAC passengers may share one SIDE_LOWER berth (BR-S5).                                                                                                |
-| 16  | Enums                               | TDR reasons, error codes (BR-B5), concession proof types, fine reasons, maintenance types, duty types.                                                                                                                                  |
-| 17  | Stations and platforms ★            | STATION: platform_count and display_name. PLATFORM rows 1 to platform_count are created for every station (BR-A9).                                                                                                                      |
-| 18  | Train data and running days ★       | TRAIN: short_name, display_name, train_type (RAJDHANI, SHATABDI, DURONTO, EXPRESS, VANDE_BHARAT) and running_days, a list of MON to SUN meaning the days the train leaves its origin (BR-B1a).                                          |
-| 19  | Chart snapshot ★                    | New CHART_SNAPSHOT: run, generated_at, and one row per passenger (PNR, passenger number, coach, seat, berth, status, boarding and destination stops, concession flag). Written once at chart time and never changed (BR-B12a).          |
-| 20  | Payments without a ticket ★         | PAYMENT keeps the gateway payment ID as unique, so it is processed once. REFUND can point to a payment that has no ticket, with reason PAYMENT_AFTER_EXPIRY (BR-B14).                                                                   |
-| 21  | Monthly limit and berth condition ★ | BOOKING: berth_condition flag, and an index on user and created date so the monthly count is fast (BR-B6a, BR-B15).                                                                                                                     |
-| 22  | Dynamic fare ★                      | PASSENGER_BOOKING fare line: add dynamic_surcharge (0 when the switch is off) (BR-F11).                                                                                                                                                 |
-
-**Where data lives.** MySQL: everything that moves money or seats, plus master data, TDR and the audit log. MongoDB: live train status (a copy of schedule delay), notifications, complaints, activity logs and raw payment-gateway replies.
-
-## 17. Dataset fixes and demo data plan
-
-**The five final data files ★.** Routes (536 stops), users (50,000), passengers (75,000), stations (158) and trains (60) are final. Every other record (coaches, seats, fares, bookings, payments, notifications and so on) must use their IDs and codes: train IDs 101 to 160, station IDs 1 to 158 and their station codes, the route stop rows, user IDs and passenger IDs. Nothing may invent a new train, station or ID.
-
-**Fixes to the data files**
-
-- Trains: add display_name, using the real, best-known train names with the train number in brackets (for example “Howrah Rajdhani Express (12301)”), and keep the original short name as short_name. Correct the train type using a review list that the leaders approve first (at least 9 trains typed EXPRESS are Rajdhani or Shatabdi by name, and about 17 of the 23 carry a hint). Store running days as a real list.
-
-- Routes: add day_offset to every stop, worked out from the clock times. Times only move forward and the longest gap between two stops is 6.8 hours, so this is exact (offsets are 0, 1 or 2). Replace placeholder 00:00 times: the arrival at a first stop becomes the departure (trains 114, 135, 157), and the departure at a last stop becomes the arrival (3 trains).
-
-- Stations: raise platform_count to 3 at BMT, DPU, FKG, SRTN, MRHT, KNE, UD and KAWR. Add clean display names (“BHARUCH JN.” becomes “Bharuch Jn”) and rename City, State and platformNo to city, state and platformCount. Create platform rows 1 to platform_count for every station.
-
-- Passengers: realistic gender split (OTHER about 1%), concession only as these rules allow (DIVYAANG only with a recorded disability and proof; no STUDENT or SENIOR concession), unique ID references, berth preference that matches the class (WINDOW only in CC, EC, 2S), and at least one adult on every booking.
-
-- Users: add name, role, account_status and aadhaar_verified. Make phone numbers unique. Store passwords with a proper salted hash. Add the demo accounts as real rows: passenger rahul.sharma@example.com (password Password123!), the staff and admin accounts from the mock data, and COUNTER_WALKIN.
-
-- Generate what does not exist yet: coaches and seats from the train layouts (section 4), fare tables (section 6), refund and concession rules, settings, quota seat counts per run, bookings, payments and queue positions.
-
-- Mock data: do not keep mock bookings, schedules, seats, coaches, availability, payments, cancellations or TDR records; they are rebuilt. Keep and remap mock logins, grievances, incidents, fines, crowd and cleanliness reports. Stations: NDLS to 10, CNB 12, PNBE 90, HWH 69, BCT 21, ST 24, BRC 26, ADI 29, MAS 17, SBC 19. Trains, by number: 12951 to 129, 12952 to 130, 12301 to 111, 12302 to 112, 12002 to 140, 12007 to 153. Records that point to PRYJ, BSB or trains 22435, 22436, 12622 and 12932 are dropped or re-pointed to a real station or train.
-
-**Demo plan.** Rajdhani, Shatabdi and Duronto trains have 836 to 936 seats per run. Use 7 journey dates starting 18 Oct 2026, and only dates on which the train runs (BR-B1a). Fill runs on purpose per the approved spread: RAC open (5 runs), RAC full with waiting list open (4), waiting list full (2), nearly full (6), busy (12), medium (15), light (25), all other runs empty, as in demo_fill_plan.csv; booking rows about 30,000 taken from the 75,000 saved passengers. A saved passenger can appear in bookings on different dates.
-
-Four stories to show the teacher, each with SQL screenshots: (1) a CONFIRMED passenger cancels and the first RAC passenger becomes CONFIRMED while the first WL passenger becomes RAC; (2) the same chain after an approved TDR; (3) the ticket collector marks a NO_SHOW and the same chain runs; (4) chart time cancels remaining WL tickets with full refunds and moves unused quota seats to GENERAL. Add a fifth: a full LADIES quota showing the fallback notice (BR-Q13).
-
-## 18. Documents to update to match this version
-
-- SYSTEM_FLOW: hold window of HOLD_MINUTES starts on booking creation; TDR reasons per section 9; add the counter booking and maintenance flows; add the running-day check (BR-B1a); remove food.
-
-- README, PROJECT_OVERVIEW, DEVELOPMENT_RULES (section 6.1): fare formula per section 6 (superfast added, concession on base fare before GST, rounding).
-
-- DATA_SCHEMA, DATA_RELATIONSHIPS, database README, API_CONTRACT: rewrite to the approved ER diagram plus section 16, using the final IDs and codes of the five data files, running days and day offsets. Concession list: NONE and DIVYAANG active, SENIOR inactive, no STUDENT or MEDICAL. Add MongoDB collections, Razorpay test endpoints (create order, verify payment), counter booking and maintenance endpoints, quota fallback, and the new error codes (BERTH_PREFERENCE_NOT_MET, MONTHLY_LIMIT_EXCEEDED, CHART_PREPARED), the berth condition, the chart snapshot and late-payment refunds.
-
-- Replace every link that points to c:/Users/Rohan/... with a relative link.
-
-- Mock JSON and frontend field names: map to the new tables once the backend is ready.
+The old sections 16 (needs from the ER diagram), 17 (dataset fixes and demo plan) and 18 (documents to update) are finished work. They were checked point by point and removed. What is still open or was built differently is in [KNOWN_GAPS_AND_DECISIONS.md](KNOWN_GAPS_AND_DECISIONS.md). The final tables are in [DATA_SCHEMA.md](DATA_SCHEMA.md).
 
 ## 19. Change process, decisions and sources
 
@@ -499,7 +438,7 @@ Four stories to show the teacher, each with SQL screenshots: (1) a CONFIRMED pas
 
 - Running days follow BR-B1a: the day the train leaves its origin.
 
-- Placeholder 00:00 times and platform counts are fixed as in section 17.
+- Placeholder 00:00 times and platform counts are fixed in the seed data.
 
 - No current train has 2S. Vande Bharat and Express have no trains in the data; their layouts stay for the future.
 

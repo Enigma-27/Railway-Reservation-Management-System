@@ -1,0 +1,111 @@
+/*
+ * RRMS shared theme (Railway Reservation & Management System)
+ * ONE set of design tokens and base components for the landing page, the passenger area, the staff portal
+ * and the admin portal. The reference is the landing page: white header, blue primary buttons, photo hero.
+ *
+ * Loaded by frontend/index.html (React app) and frontend/public/user/index.html (passenger area).
+ * Tailwind pages read the same values through tailwind.config.js (theme.extend.colors.rrms).
+ *
+ * Contrast rule: every text/background pair below is at least WCAG AA (4.5:1 body text, 3:1 large text).
+ * Ratios on white (calculated): text 17.9, muted 7.6, primary 6.4, success 5.5, danger 6.5, warning 5.6,
+ * placeholder 4.8. On the soft badge backgrounds the lowest is 4.95 (success).
+ */
+:root {
+  /* colours */
+  --rrms-primary: #2259c2;
+  --rrms-primary-hover: #1a479e;
+  --rrms-primary-soft: #eaf1fd;
+  --rrms-text: #0f172a;
+  --rrms-text-muted: #475569;
+  --rrms-text-on-primary: #ffffff;
+  --rrms-bg: #f4f7fb;
+  --rrms-surface: #ffffff;
+  --rrms-surface-alt: #f8fafc;
+  --rrms-border: #dbe3ee;
+  --rrms-success: #047857;
+  --rrms-success-soft: #e7f7ef;
+  --rrms-danger: #b91c1c;
+  --rrms-danger-soft: #fdecec;
+  --rrms-warning: #a15207;
+  --rrms-warning-soft: #fdf3e1;
+  --rrms-info: #1d4ed8;
+  --rrms-info-soft: #e8efff;
+
+  /* type */
+  --rrms-font: 'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --rrms-font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  --rrms-fs-sm: 0.8125rem;
+  --rrms-fs-md: 0.9375rem;
+  --rrms-fs-lg: 1.125rem;
+
+  /* shape and space */
+  --rrms-radius-sm: 8px;
+  --rrms-radius: 12px;
+  --rrms-radius-lg: 16px;
+  --rrms-space-1: 4px;
+  --rrms-space-2: 8px;
+  --rrms-space-3: 12px;
+  --rrms-space-4: 16px;
+  --rrms-space-6: 24px;
+  --rrms-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --rrms-shadow: 0 6px 20px rgba(15, 23, 42, 0.10);
+  --rrms-shadow-lg: 0 14px 44px rgba(15, 23, 42, 0.22);
+  --rrms-focus: 0 0 0 3px rgba(34, 89, 194, 0.35);
+}
+
+/* ---------- buttons ---------- */
+.rrms-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 40px; padding: 0 18px; border: 1px solid transparent; border-radius: var(--rrms-radius-sm);
+  font: 600 var(--rrms-fs-sm)/1 var(--rrms-font); cursor: pointer; text-decoration: none;
+  transition: background-color .15s, border-color .15s, box-shadow .15s;
+}
+.rrms-btn:focus-visible { outline: none; box-shadow: var(--rrms-focus); }
+.rrms-btn:disabled { opacity: .6; cursor: not-allowed; }
+.rrms-btn-primary { background: var(--rrms-primary); color: var(--rrms-text-on-primary); box-shadow: var(--rrms-shadow-sm); }
+.rrms-btn-primary:hover:not(:disabled) { background: var(--rrms-primary-hover); }
+.rrms-btn-secondary { background: var(--rrms-surface); color: var(--rrms-primary); border-color: var(--rrms-border); }
+.rrms-btn-secondary:hover:not(:disabled) { background: var(--rrms-primary-soft); }
+.rrms-btn-danger { background: var(--rrms-danger); color: #fff; }
+
+/* ---------- form fields ---------- */
+.rrms-field { display: flex; flex-direction: column; gap: 6px; font: 600 var(--rrms-fs-sm)/1.2 var(--rrms-font); color: var(--rrms-text); }
+.rrms-input, .rrms-select, .rrms-textarea {
+  width: 100%; min-height: 40px; padding: 9px 12px; border: 1px solid var(--rrms-border); border-radius: var(--rrms-radius-sm);
+  background: var(--rrms-surface); color: var(--rrms-text); font: 400 var(--rrms-fs-md)/1.3 var(--rrms-font);
+}
+.rrms-input::placeholder, .rrms-textarea::placeholder { color: #64748b; }
+.rrms-input:focus, .rrms-select:focus, .rrms-textarea:focus { outline: none; border-color: var(--rrms-primary); box-shadow: var(--rrms-focus); }
+
+/* ---------- cards, badges, tables ---------- */
+.rrms-card { background: var(--rrms-surface); border: 1px solid var(--rrms-border); border-radius: var(--rrms-radius-lg); box-shadow: var(--rrms-shadow-sm); padding: var(--rrms-space-6); color: var(--rrms-text); }
+.rrms-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font: 700 11px/1.4 var(--rrms-font); letter-spacing: .03em; }
+.rrms-badge-success { background: var(--rrms-success-soft); color: var(--rrms-success); }
+.rrms-badge-danger { background: var(--rrms-danger-soft); color: var(--rrms-danger); }
+.rrms-badge-warning { background: var(--rrms-warning-soft); color: var(--rrms-warning); }
+.rrms-badge-info { background: var(--rrms-info-soft); color: var(--rrms-info); }
+.rrms-table { width: 100%; border-collapse: collapse; font: 400 var(--rrms-fs-sm)/1.4 var(--rrms-font); color: var(--rrms-text); }
+.rrms-table th { text-align: left; padding: 10px 12px; background: var(--rrms-surface-alt); color: var(--rrms-text-muted); font-weight: 700; border-bottom: 1px solid var(--rrms-border); }
+.rrms-table td { padding: 10px 12px; border-bottom: 1px solid var(--rrms-border); }
+
+/* ---------- modal and toast ---------- */
+.rrms-modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10000; }
+.rrms-modal-backdrop[hidden] { display: none; }
+.rrms-modal { width: 100%; max-width: 440px; background: var(--rrms-surface); color: var(--rrms-text); border-radius: var(--rrms-radius-lg); box-shadow: var(--rrms-shadow-lg); padding: 22px; }
+.rrms-modal h2 { margin: 0 0 4px; font: 800 var(--rrms-fs-lg)/1.3 var(--rrms-font); }
+.rrms-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--rrms-text); color: #fff; padding: 10px 18px; border-radius: var(--rrms-radius-sm); box-shadow: var(--rrms-shadow); font: 600 var(--rrms-fs-sm)/1.3 var(--rrms-font); z-index: 10001; }
+.rrms-alert-error { background: var(--rrms-danger-soft); color: var(--rrms-danger); border: 1px solid #f3c1c1; border-radius: var(--rrms-radius-sm); padding: 10px 12px; font-size: var(--rrms-fs-sm); }
+.rrms-alert-info { background: var(--rrms-info-soft); color: var(--rrms-info); border: 1px solid #c7d6fb; border-radius: var(--rrms-radius-sm); padding: 10px 12px; font-size: var(--rrms-fs-sm); }
+
+/* ---------- floating Contact Us button (rrms-contact.js) ---------- */
+.rrms-contact-fab {
+  position: fixed; right: 20px; bottom: 20px; z-index: 9999; display: inline-flex; align-items: center; gap: 8px;
+  min-height: 48px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--rrms-primary); color: #fff;
+  font: 700 var(--rrms-fs-sm)/1 var(--rrms-font); cursor: pointer; box-shadow: var(--rrms-shadow-lg);
+}
+.rrms-contact-fab:hover { background: var(--rrms-primary-hover); }
+.rrms-contact-fab:focus-visible { outline: none; box-shadow: var(--rrms-focus), var(--rrms-shadow-lg); }
+.rrms-contact-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 6px; font-size: var(--rrms-fs-sm); color: var(--rrms-text-muted); }
+.rrms-contact-list strong { color: var(--rrms-text); }
+.rrms-contact-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+@media (max-width: 520px) { .rrms-contact-fab span { display: none; } .rrms-contact-fab { padding: 0 14px; } }

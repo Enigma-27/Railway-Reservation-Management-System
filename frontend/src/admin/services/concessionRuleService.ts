@@ -1,4 +1,4 @@
-import { API_CONFIG } from '../config/api.config';
+import { isServiceMock } from '../config/api.config';
 import { httpRequest } from './http.client';
 import { simulateLatency } from './mock.client';
 
@@ -21,7 +21,7 @@ const MOCK_CONCESSIONS: ConcessionRule[] = [
 
 export const concessionRuleService = {
   async getConcessionRules(): Promise<ConcessionRule[]> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       return [...MOCK_CONCESSIONS];
     }
@@ -29,7 +29,7 @@ export const concessionRuleService = {
   },
 
   async getConcessionRule(id: number): Promise<ConcessionRule> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const r = MOCK_CONCESSIONS.find((c) => c.ruleId === id);
       if (!r) throw new Error(`Concession rule #${id} not found.`);
@@ -39,7 +39,7 @@ export const concessionRuleService = {
   },
 
   async createConcessionRule(payload: Omit<ConcessionRule, 'ruleId'>): Promise<ConcessionRule> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const newId = Math.max(...MOCK_CONCESSIONS.map((c) => c.ruleId), 0) + 1;
       const created: ConcessionRule = { ruleId: newId, ...payload };
@@ -53,7 +53,7 @@ export const concessionRuleService = {
   },
 
   async updateConcessionRule(id: number, payload: Partial<Omit<ConcessionRule, 'ruleId'>>): Promise<ConcessionRule> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const idx = MOCK_CONCESSIONS.findIndex((c) => c.ruleId === id);
       if (idx === -1) throw new Error(`Concession rule #${id} not found.`);
@@ -68,7 +68,7 @@ export const concessionRuleService = {
   },
 
   async deleteConcessionRule(id: number): Promise<void> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const idx = MOCK_CONCESSIONS.findIndex((c) => c.ruleId === id);
       if (idx !== -1) MOCK_CONCESSIONS.splice(idx, 1);

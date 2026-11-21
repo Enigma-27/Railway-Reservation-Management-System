@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStaff } from '../context/StaffContext';
 import { Search, Train, Clock, LogOut, ChevronDown, User, Badge, Home } from 'lucide-react';
-import { authService } from '../admin/services/authService';
+import { signOut } from '../auth/session';
+import { indiaClockLabel } from '../utils/formatters';
 
 interface HeaderProps {
   onOpenScanner: () => void;
@@ -14,14 +15,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenScanner }) => {
   const profileRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      setTimeStr(
-        now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) +
-          '  ' +
-          now.toLocaleTimeString('en-US', { hour12: false })
-      );
-    };
+    // India time, not the browser's time zone
+    const update = () => setTimeStr(indiaClockLabel());
     update();
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
@@ -39,7 +34,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenScanner }) => {
   }, []);
 
   const handleLogout = () => {
-    authService.staffLogout();
+    signOut();
     window.location.href = '/';
   };
 

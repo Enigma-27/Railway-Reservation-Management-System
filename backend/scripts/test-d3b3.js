@@ -504,6 +504,21 @@ async function runTests() {
     });
     const token12470 = user12470Login.data.data.token;
 
+    // New rule (on purpose): a non-delay TDR such as CLASS_DOWNGRADED needs the train to have left first.
+    // Schedule 1063 was moved to tomorrow above, so the claim is refused now.
+    const earlyFileRes = await request('POST', '/api/tdr', {
+      pnr: '2849115628',
+      passengerNos: [1],
+      reason: 'CLASS_DOWNGRADED',
+      evidenceReference: 'CERT_TC_OFFICIAL_102'
+    }, token12470);
+    assert(earlyFileRes.status === 400 && earlyFileRes.data.success === false, 'Non-delay TDR is refused while the train has not yet left');
+    const [earlyRows] = await pool.query('SELECT COUNT(*) AS cnt FROM TDR_FILING WHERE pnr = ?', ['2849115628']);
+    assert(earlyRows[0].cnt === 0, 'Refused early TDR wrote no TDR_FILING row');
+
+    // The train has now run: move the run to yesterday (the 72 hour filing window after arrival is still open)
+    await pool.query('UPDATE TRAIN_SCHEDULE SET journey_date = DATE_SUB(CURDATE(), INTERVAL 1 DAY) WHERE schedule_id = 1063');
+
     const file2Res = await request('POST', '/api/tdr', {
       pnr: '2849115628',
       passengerNos: [1],
@@ -513,6 +528,9 @@ async function runTests() {
 
     assert(file2Res.status === 201, 'Second TDR filed successfully');
     const tdr2RefNo = file2Res.data.data.tdrRefNo;
+
+    // Put run 1063 back to tomorrow: the later tests (delay TDR) need a train that has not left yet
+    await pool.query('UPDATE TRAIN_SCHEDULE SET journey_date = DATE_ADD(CURDATE(), INTERVAL 1 DAY) WHERE schedule_id = 1063');
 
     // Reject TDR
     const rejectRes = await request('PUT', `/api/admin/tdr/${tdr2RefNo}`, {

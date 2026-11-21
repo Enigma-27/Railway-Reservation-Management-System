@@ -409,7 +409,71 @@ async function getMe(req, res, next) {
   }
 }
 
+/**
+ * Change Password: POST /api/auth/change-password (any logged-in role)
+ * Body: { currentPassword, newPassword }
+ * - The current password is checked with verifyPassword (seed users use scrypt, new users bcrypt)
+ * - The new password is stored as bcrypt (min 8 characters)
+ * - An AUDIT_LOG row is written; it never contains any password text
+ */
+async function changePassword(req, res, next) {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+
+    if (typeof currentPassword !== 'string' || !currentPassword) {
+      throw new AppError('VALIDATION_ERROR', 'currentPassword is required', 400);
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      throw new AppError('VALIDATION_ERROR', 'New password must be at least 8 characters long', 400);
+    }
+    if (newPassword === currentPassword) {
+      throw new AppError('VALIDATION_ERROR', 'New password must be different from the current password', 400);
+    }
+
+    const userId = req.user.userId;
+    const [rows] = await pool.query('SELECT user_id, password_hash FROM USER_ACCOUNT WHERE user_id = ?', [userId]);
+    if (rows.length === 0) {
+      throw new AppError('UNAUTHORIZED', 'User no longer exists', 401);
+    }
+
+    let currentMatches = false;
+    try {
+      currentMatches = await verifyPassword(currentPassword, rows[0].password_hash, userId);
+    } catch (_) {
+      currentMatches = false;
+    }
+    if (!currentMatches) {
+      // 400, not 401: the portals treat any 401 as "session expired" and would sign the user out
+      throw new AppError('WRONG_CURRENT_PASSWORD', 'Current password is incorrect', 400);
+    }
+
+    const newHash = await hashBcryptPassword(newPassword);
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query('UPDATE USER_ACCOUNT SET password_hash = ? WHERE user_id = ?', [newHash, userId]);
+      await conn.query(
+        `INSERT INTO AUDIT_LOG (user_id, action, table_name, record_id, old_value, new_value, logged_at)
+         VALUES (?, 'CHANGE_PASSWORD', 'USER_ACCOUNT', ?, NULL, ?, NOW())`,
+        [userId, String(userId), JSON.stringify({ role: req.user.role, passwordChanged: true })]
+      );
+      await conn.commit();
+    } catch (txErr) {
+      try { await conn.rollback(); } catch (_) {}
+      throw txErr;
+    } finally {
+      conn.release();
+    }
+
+    return res.status(200).json({ success: true, data: { changed: true } });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
+  changePassword,
   registerPassenger,
   loginPassenger,
   loginStaff,

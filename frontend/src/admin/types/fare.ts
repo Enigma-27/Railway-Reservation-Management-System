@@ -15,21 +15,9 @@ export interface FareRule {
 }
 
 
-export interface FareCalculationInput {
-  distanceKm: number;
-  classType: ClassType;
-  isTatkal?: boolean;
-  insuranceSelected?: boolean;
-  concessionDiscount?: number;
-}
-
-export interface FareCalculationBreakdown {
-  baseFare: number;
-  reservationCharge: number;
-  tatkalCharge: number;
-  insurancePremium: number;
-  gst: number;
-  concessionDiscount: number;
-  subtotal: number;
-  totalFare: number;
+/** Answer of GET /api/admin/fares/calculate: the real fare for one passenger (fn_calculate_fare, insurance included). */
+export interface RealFareCalculation {
+  classCode: string; distanceKm: number; trainType: string; quota: string; concession: string;
+  baseFare: number; concessionDiscount: number; reservationCharge: number; superfastCharge: number;
+  tatkalCharge: number; dynamicSurcharge: number; gst: number; insurance: number; totalFare: number;
 }

@@ -194,7 +194,7 @@ async function runTests() {
     const staffSettingsPut = await request('PUT', '/api/admin/settings/BOOKING_WINDOW_DAYS', { value: '14' }, tokenStaff1);
     assert(staffSettingsPut.status === 403, 'Staff PUT /api/admin/settings/:key refused with 403 Forbidden');
 
-    // 1b. Admin GET /api/admin/settings lists all 13 keys
+    // 1b. Admin GET /api/admin/settings lists all 18 keys (13 original + SENIOR_AGE_MALE, SENIOR_AGE_FEMALE, CONTACT_HELPLINE, CONTACT_EMAIL, CONTACT_ADDRESS)
     const settingsRes = await request('GET', '/api/admin/settings', null, tokenAdmin);
     assert(settingsRes.status === 200, 'Admin GET /api/admin/settings returned 200 OK');
     assert(Array.isArray(settingsRes.data.data), 'Settings response data is an array');
@@ -212,10 +212,15 @@ async function runTests() {
       'MAX_PASSENGERS_PER_PNR_TATKAL',
       'MAX_TICKETS_PER_MONTH',
       'MAX_TICKETS_PER_MONTH_AADHAAR_VERIFIED',
-      'MIN_CHARGEABLE_DISTANCE_KM'
+      'MIN_CHARGEABLE_DISTANCE_KM',
+      'SENIOR_AGE_MALE',
+      'SENIOR_AGE_FEMALE',
+      'CONTACT_HELPLINE',
+      'CONTACT_EMAIL',
+      'CONTACT_ADDRESS'
     ];
 
-    assert(settingsRes.data.data.length === 13, `Settings count is exactly 13 (found ${settingsRes.data.data.length})`);
+    assert(settingsRes.data.data.length === 18, `Settings count is exactly 18 (found ${settingsRes.data.data.length})`);
     const returnedKeys = settingsRes.data.data.map(s => s.settingKey);
     for (const k of expectedKeys) {
       assert(returnedKeys.includes(k), `Settings list contains required key: ${k}`);

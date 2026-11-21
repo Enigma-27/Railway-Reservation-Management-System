@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { bookingService } from '../../services/bookingService';
 import { trainService } from '../../services/trainService';
-import { API_CONFIG } from '../../config/api.config';
 import { Booking, BookingDetail } from '../../types/booking';
 import { Train } from '../../types/train';
 import { BookingStatus,  } from '../../constants/enums';
@@ -140,7 +139,7 @@ export const BookingsPage: React.FC = () => {
       const updated = await bookingService.getBookingByPnr(bookingDetail.pnr);
       setBookingDetail(updated);
       setIsCancelConfirmOpen(false);
-      alert(`Booking cancelled successfully. Refund issued: ₹${res.refundAmount.toFixed(2)}`);
+      alert(`Booking cancelled successfully. Refund (from the server): ₹${Number(res.refundAmount).toFixed(2)}`);
     } catch (err: any) {
       alert(err.message || 'Failed to cancel booking.');
     } finally {
@@ -447,31 +446,28 @@ export const BookingsPage: React.FC = () => {
                 Close Drawer
               </button>
               <div className="flex items-center gap-2">
-                {API_CONFIG.USE_MOCK ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={handleOpenOverride}
-                      className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
-                    >
-                      <Edit className="w-3.5 h-3.5 text-orange-600" />
-                      <span>Administrative Override</span>
-                    </button>
-                    {bookingDetail.bookingStatus !== 'CANCELLED' && (
-                      <button
-                        type="button"
-                        onClick={() => setIsCancelConfirmOpen(true)}
-                        className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
-                      >
-                        <Ban className="w-3.5 h-3.5" />
-                        <span>Cancel Ticket & Refund</span>
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-xs text-slate-400 italic">
-                    This feature is not available yet.
-                  </span>
+                {/* Status override has no backend route, so it is disabled with a reason */}
+                <button
+                  type="button"
+                  disabled
+                  title="This feature is not available yet. The server has no route to override a booking status."
+                  className="px-3.5 py-2 bg-slate-100 border border-slate-200 text-slate-400 text-xs font-semibold rounded-lg flex items-center gap-1.5 opacity-60 cursor-not-allowed"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Administrative Override</span>
+                </button>
+                <span className="text-[11px] text-slate-400 italic max-w-[10rem]">
+                  This feature is not available yet: no server route for status override.
+                </span>
+                {['CONFIRMED', 'RAC', 'WAITING_LIST'].includes(bookingDetail.bookingStatus) && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCancelConfirmOpen(true)}
+                    className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>Cancel Ticket & Refund</span>
+                  </button>
                 )}
               </div>
             </div>
@@ -534,10 +530,7 @@ export const BookingsPage: React.FC = () => {
       <ConfirmDialog
         isOpen={isCancelConfirmOpen}
         title="Administrative Ticket Cancellation"
-        message={`Are you sure you want to cancel PNR ${bookingDetail?.pnr}? Standard railway cancellation fee (₹120) will be deducted and ₹${Math.max(
-          0,
-          (bookingDetail?.totalFare || 0) - 120
-        ).toFixed(2)} will be scheduled for refund.`}
+        message={`Are you sure you want to cancel the whole of PNR ${bookingDetail?.pnr}? The server works out the cancellation charge and the refund amount and shows it after the cancellation.`}
         confirmLabel="Cancel PNR & Issue Refund"
         isDestructive={true}
         isLoading={isCancelling}

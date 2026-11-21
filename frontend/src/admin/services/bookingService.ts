@@ -1,4 +1,4 @@
-import { API_CONFIG, isServiceMock } from '../config/api.config';
+import { isServiceMock } from '../config/api.config';
 import { BookingStatus } from '../constants/enums';
 import { Booking, BookingDetail } from '../types/booking';
 import { Cancellation } from '../types/cancellation';
@@ -146,7 +146,7 @@ export const bookingService = {
 
 
   async overrideBooking(pnr: string, payload: Partial<Booking>): Promise<Booking> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('bookings')) {
       await simulateLatency();
       const bookings = mockStore.getBookings();
       const idx = bookings.findIndex((b) => b.pnr === pnr);
@@ -179,7 +179,7 @@ export const bookingService = {
     pnr: string,
     passengerIds?: number[]
   ): Promise<{ cancellationId: number; pnr: string; cancellationCharge: number; refundAmount: number; status: string }> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('bookings')) {
       await simulateLatency();
       const booking = mockStore.getBookings().find((b) => b.pnr === pnr);
       if (!booking) throw new Error(`Booking with PNR ${pnr} not found.`);
@@ -240,26 +240,19 @@ export const bookingService = {
       };
     }
 
-    try {
-      return await httpRequest<{ cancellationId: number; pnr: string; cancellationCharge: number; refundAmount: number; status: string }>(
-        `/api/bookings/${pnr}/cancel`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ passengerNos: passengerIds || [] }),
-        }
-      );
-    } catch (err: any) {
-      if (err.status === 404) {
-        return await httpRequest<{ cancellationId: number; pnr: string; cancellationCharge: number; refundAmount: number; status: string }>(
-          `/api/admin/bookings/${pnr}/cancel`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ passengerIds: passengerIds || [] }),
-          }
-        );
-      }
-      throw err;
-    }
+    // The passenger cancel route already allows ADMIN (and STAFF). The server works out charge and refund.
+    // The real reply has cancelId, cancelledPassengers, cancellationCharge, refundAmount, promotionTriggered, gatewayRefund.
+    const res = await httpRequest<any>(`/api/bookings/${pnr}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ passengerNos: passengerIds || [] }),
+    });
+    return {
+      cancellationId: Number(res.cancelId ?? 0),
+      pnr: String(res.pnr ?? pnr),
+      cancellationCharge: Number(res.cancellationCharge ?? 0),
+      refundAmount: Number(res.refundAmount ?? 0),
+      status: res.refund?.status || 'Unknown',
+    };
   },
 };
 

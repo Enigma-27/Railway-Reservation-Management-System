@@ -3,19 +3,21 @@ export const API_CONFIG = {
   USE_MOCK: import.meta.env.VITE_USE_MOCK === 'true',
   BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000',
   STORAGE_KEYS: {
-    TOKEN: 'rrms_admin_token',
-    USER: 'rrms_admin_user',
-    STAFF_TOKEN: 'rrms_staff_token',
-    STAFF_USER: 'rrms_staff_user',
+    // ONE session for every role (see src/auth/session.ts): the same two keys hold the token and the user.
+    TOKEN: 'rrms_token',
+    USER: 'rrms_user',
+    STAFF_TOKEN: 'rrms_token',
+    STAFF_USER: 'rrms_user',
   },
   DEFAULT_MOCK_LATENCY_MS: 300,
   SERVICE_MOCK: {
     // Services without real backend endpoints remain on mock
-    quotas: true,
     notifications: true,
     groundReports: true,
 
     // Real services backed by live backend endpoints
+    quotas: false,
+    auth: false,
     dashboard: false,
     reports: false,
     bookings: false,
@@ -26,6 +28,7 @@ export const API_CONFIG = {
     users: false,
     platforms: false,
     fines: false,
+    refundTransactions: false,
     incidents: false,
     settings: false,
     complaints: false,

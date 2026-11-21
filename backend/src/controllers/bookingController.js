@@ -1,9 +1,13 @@
 const pool = require('../config/mysql');
 const AppError = require('../utils/appError');
 const { CANONICAL_ERROR_MESSAGES, CANONICAL_ERROR_STATUS_CODES } = require('../middleware/errorHandler');
-const { processGatewayRefund } = require('../services/gatewayRefundService');
+const { processRefundsByIds, summarizeGatewayResult, refundMessage } = require('../services/gatewayRefundService');
 const { createNotification } = require('../services/notificationService');
 const { logActivity } = require('../services/activityLogService');
+const { assertPassengerLimit } = require('../services/bookingRulesService');
+
+// Booking statuses (BOOKING.status) that may be cancelled or estimated for refund
+const CANCELLABLE_BOOKING_STATUSES = ['CONFIRMED', 'RAC', 'WAITING_LIST'];
 
 /**
  * Validates YYYY-MM-DD date format strictly without JS Date
@@ -46,9 +50,8 @@ async function createBooking(req, res, next) {
       throw new AppError('VALIDATION_ERROR', 'At least one passenger is required', 400);
     }
 
-    if (passengers.length > 6) {
-      throw new AppError('VALIDATION_ERROR', 'Maximum 6 passengers allowed per booking', 400);
-    }
+    // The limit comes from SETTING: MAX_PASSENGERS_PER_PNR (6), and MAX_PASSENGERS_PER_PNR_TATKAL (4) for Tatkal
+    await assertPassengerLimit(requestedQuota || quota, passengers.length);
 
     // 1. Resolve stop details from ROUTE_STOP
     const [stopRows] = await pool.query(
@@ -333,11 +336,12 @@ async function cancelBooking(req, res, next) {
       throw new AppError('FORBIDDEN', 'Insufficient permissions to cancel booking', 403);
     }
 
-    // 3. Status check: Refuse if not CONFIRMED (e.g. PAYMENT_PENDING, FAILED, CANCELLED)
-    if (booking.status !== 'CONFIRMED') {
+    // 3. Status check: CONFIRMED, RAC and WAITING_LIST bookings may be cancelled.
+    // Refuse PAYMENT_PENDING, FAILED, CANCELLED.
+    if (!CANCELLABLE_BOOKING_STATUSES.includes(booking.status)) {
       throw new AppError(
         'BAD_REQUEST',
-        `Cannot cancel booking with status '${booking.status}'. Only CONFIRMED bookings can be cancelled.`,
+        `Cannot cancel booking with status '${booking.status}'. Only CONFIRMED, RAC or WAITING_LIST bookings can be cancelled.`,
         400
       );
     }
@@ -418,6 +422,9 @@ async function cancelBooking(req, res, next) {
 
       if (output.status === 'CHART_PREPARED') {
         throw new AppError('CHART_PREPARED', CANONICAL_ERROR_MESSAGES.CHART_PREPARED, 400);
+      }
+      if (output.status === 'REFUND_EXCEEDS_PAYMENT') {
+        throw new AppError('REFUND_EXCEEDS_PAYMENT', CANONICAL_ERROR_MESSAGES.REFUND_EXCEEDS_PAYMENT, 400);
       }
       if (output.status === 'ALREADY_CANCELLED') {
         throw new AppError('BAD_REQUEST', 'Ticket or passenger is already cancelled', 400);
@@ -506,34 +513,17 @@ async function cancelBooking(req, res, next) {
       deductionPercentage = pctRow.length > 0 ? Number(pctRow[0].deduction_percentage) : 0;
     }
 
-    // 7. Gateway refund for online payments
+    // 7. Gateway refund, one REFUND row at a time (SQL wrote the rows as PENDING; the service records the result)
     let gatewayRefund = 'SKIPPED';
-    if (totalRefundAmount > 0) {
-      const [payRows] = await pool.query(
-        `SELECT payment_id, method, gateway_payment_id, amount
-         FROM PAYMENT
-         WHERE pnr = ? AND status = 'SUCCESS'
-         ORDER BY payment_id DESC
-         LIMIT 1`,
-        [pnr]
-      );
-
-      if (payRows.length > 0) {
-        const payment = payRows[0];
-        try {
-          const gwRes = await processGatewayRefund({
-            pnr,
-            paymentMethod: payment.method,
-            gatewayPaymentId: payment.gateway_payment_id,
-            amountInRupees: totalRefundAmount,
-            refundIds,
-            reason: 'CANCELLATION'
-          });
-          gatewayRefund = gwRes.status; // 'SUCCESS', 'FAILED', or 'SKIPPED'
-        } catch (gwErr) {
-          console.error('[GATEWAY_REFUND_ERROR]:', gwErr.message);
-          gatewayRefund = 'FAILED';
-        }
+    let refundNote = null;
+    if (refundIds.length > 0) {
+      const gwResults = await processRefundsByIds(refundIds);
+      gatewayRefund = summarizeGatewayResult(gwResults);
+      refundNote = refundMessage(gatewayRefund);
+      const [freshRefunds] = await pool.query('SELECT refund_id, status FROM REFUND WHERE refund_id IN (?)', [refundIds]);
+      for (const fr of freshRefunds) {
+        const row = refundRows.find(x => Number(x.refund_id) === Number(fr.refund_id));
+        if (row) row.status = fr.status;
       }
     }
 
@@ -541,7 +531,7 @@ async function cancelBooking(req, res, next) {
       userId: Number(booking.user_id),
       type: 'STATUS_UPDATE',
       title: 'Ticket Cancellation & Refund',
-      message: `Your booking for PNR ${pnr} has been cancelled. Refund amount: Rs ${Number(totalRefundAmount.toFixed(2))}.`,
+      message: `Your booking for PNR ${pnr} has been cancelled. Refund amount: Rs ${Number(totalRefundAmount.toFixed(2))}${gatewayRefund === 'FAILED' || gatewayRefund === 'PENDING' ? ' (being processed)' : ''}.`,
       referenceId: String(pnr)
     });
 
@@ -575,7 +565,8 @@ async function cancelBooking(req, res, next) {
         promotionTriggered,
         cancelIds,
         refundIds,
-        gatewayRefund
+        gatewayRefund,
+        ...(refundNote ? { refundMessage: refundNote } : {})
       }
     });
 
@@ -628,11 +619,11 @@ async function getRefundEstimate(req, res, next) {
       throw new AppError('FORBIDDEN', 'Insufficient permissions to view refund estimate', 403);
     }
 
-    // 3. Status check: Refuse if not CONFIRMED
-    if (booking.status !== 'CONFIRMED') {
+    // 3. Status check: same statuses as cancellation (CONFIRMED, RAC, WAITING_LIST)
+    if (!CANCELLABLE_BOOKING_STATUSES.includes(booking.status)) {
       throw new AppError(
         'BAD_REQUEST',
-        `Cannot estimate refund for booking with status '${booking.status}'. Only CONFIRMED bookings can be cancelled.`,
+        `Cannot estimate refund for booking with status '${booking.status}'. Only CONFIRMED, RAC or WAITING_LIST bookings can be cancelled.`,
         400
       );
     }
@@ -752,6 +743,7 @@ function formatBookingRow(row) {
     totalFare: Number(row.totalFare),
     passengerCount: Number(row.passengerCount),
     createdAt: row.createdAt,
+    ...(row.bookingStatus === 'PAYMENT_PENDING' ? { holdSecondsRemaining: Number(row.holdSecondsRemaining) || 0 } : {}),
     boardingStation: {
       stationCode: row.boardingStationCode,
       stationName: row.boardingStationName
@@ -795,6 +787,7 @@ async function getMyBookings(req, res, next) {
         b.total_fare AS totalFare,
         COUNT(pb.passenger_no) AS passengerCount,
         b.created_at AS createdAt,
+        GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(b.created_at, INTERVAL CAST(COALESCE((SELECT setting_value FROM SETTING WHERE setting_key = 'HOLD_MINUTES'), '10') AS SIGNED) MINUTE))) AS holdSecondsRemaining,
         s_from.station_code AS boardingStationCode,
         COALESCE(NULLIF(s_from.display_name, ''), s_from.station_name) AS boardingStationName,
         s_to.station_code AS destinationStationCode,
@@ -868,6 +861,7 @@ async function getBookingByPnr(req, res, next) {
         b.total_fare AS totalFare,
         COUNT(pb.passenger_no) AS passengerCount,
         b.created_at AS createdAt,
+        GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(b.created_at, INTERVAL CAST(COALESCE((SELECT setting_value FROM SETTING WHERE setting_key = 'HOLD_MINUTES'), '10') AS SIGNED) MINUTE))) AS holdSecondsRemaining,
         s_from.station_code AS boardingStationCode,
         COALESCE(NULLIF(s_from.display_name, ''), s_from.station_name) AS boardingStationName,
         s_to.station_code AS destinationStationCode,
@@ -911,6 +905,10 @@ async function getBookingByPnr(req, res, next) {
         pb.name,
         pb.age,
         pb.gender,
+        pb.concession_type AS concessionType,
+        pb.base_fare AS baseFare, pb.concession_discount AS concessionDiscount, pb.reservation_charge AS reservationCharge,
+        pb.superfast_charge AS superfastCharge, pb.tatkal_charge AS tatkalCharge, pb.dynamic_surcharge AS dynamicSurcharge,
+        pb.gst AS gst, pb.insurance AS insurance, pb.total_fare AS passengerTotalFare,
         CASE WHEN b.status = 'CANCELLED' OR r.status = 'CANCELLED' THEN 'CANCELLED' ELSE r.status END AS status,
         CASE WHEN b.status = 'CANCELLED' OR r.status = 'CANCELLED' THEN NULL ELSE r.queue_position END AS queuePosition,
         CASE WHEN b.status = 'CANCELLED' OR r.status = 'CANCELLED' THEN NULL ELSE c.coach_code END AS coachNumber,
@@ -931,12 +929,34 @@ async function getBookingByPnr(req, res, next) {
       name: p.name,
       age: Number(p.age),
       gender: p.gender,
+      concessionType: p.concessionType,
+      fare: {
+        baseFare: Number(p.baseFare), concessionDiscount: Number(p.concessionDiscount), reservationCharge: Number(p.reservationCharge),
+        superfastCharge: Number(p.superfastCharge), tatkalCharge: Number(p.tatkalCharge), dynamicSurcharge: Number(p.dynamicSurcharge),
+        gst: Number(p.gst), insurance: Number(p.insurance), totalFare: Number(p.passengerTotalFare)
+      },
       status: p.status,
       queuePosition: p.queuePosition || null,
       coachNumber: p.coachNumber || null,
       seatNumber: p.seatNumber !== null && p.seatNumber !== undefined ? Number(p.seatNumber) : null,
       berthType: p.berthType || null
     }));
+
+    // Staff and admin also see the latest ticket verification of each passenger (read from the database, so it
+    // survives a page reload): result, remarks and time
+    if (userRole === 'STAFF' || userRole === 'ADMIN') {
+      const [verRows] = await pool.query(
+        `SELECT tv.passenger_no, tv.result, tv.remarks, tv.verified_at
+           FROM TICKET_VERIFICATION tv
+           JOIN (SELECT passenger_no, MAX(verify_id) AS vid FROM TICKET_VERIFICATION WHERE pnr = ? GROUP BY passenger_no) last
+             ON last.vid = tv.verify_id`,
+        [pnr]
+      );
+      for (const p of passengers) {
+        const v = verRows.find(x => Number(x.passenger_no) === p.passengerNo);
+        p.verification = v ? { result: v.result, remarks: v.remarks || '', verifiedAt: String(v.verified_at) } : null;
+      }
+    }
 
     const formattedBooking = formatBookingRow(bookingRow);
 

@@ -5,6 +5,7 @@ const {
   loginStaff,
   loginAdmin,
   loginUniversal,
+  changePassword,
   getMe
 } = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
@@ -22,5 +23,8 @@ router.post('/login', loginUniversal);
 
 // Profile
 router.get('/me', authenticate, getMe);
+
+// Change own password (any logged-in role)
+router.post('/change-password', authenticate, changePassword);
 
 module.exports = router;

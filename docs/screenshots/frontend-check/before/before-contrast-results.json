@@ -1,0 +1,1044 @@
+[
+ {
+  "page": "00-landing",
+  "violations": 1,
+  "minRatio": 2.53,
+  "worst": [
+   {
+    "ratio": 2.53,
+    "need": "4.5:1",
+    "fg": "#9ca3af",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-gray-400 text-[11px]\">Demo: credentials prefilled</span>",
+    "target": ".justify-between.text-xs.flex > .text-gray-400"
+   }
+  ]
+ },
+ {
+  "page": "01-static-public-home",
+  "violations": 7,
+  "minRatio": 2.4,
+  "worst": [
+   {
+    "ratio": 2.4,
+    "need": "4.5:1",
+    "fg": "#98a2b2",
+    "bg": "#f5f7fb",
+    "text": "<div class=\"public-photo-credit\">Platform photograph by <a href=\"https://unsplash.com/phot",
+    "target": ".public-photo-credit"
+   },
+   {
+    "ratio": 2.98,
+    "need": "4.5:1",
+    "fg": "#8c96a8",
+    "bg": "#ffffff",
+    "text": "<small>Passenger Account</small>",
+    "target": ".public-account > span:nth-child(2) > small"
+   },
+   {
+    "ratio": 3.44,
+    "need": "4.5:1",
+    "fg": "#7f8ba0",
+    "bg": "#ffffff",
+    "text": "<small>&amp; Management System</small>",
+    "target": ".public-brand > span:nth-child(2) > small"
+   },
+   {
+    "ratio": 3.59,
+    "need": "4.5:1",
+    "fg": "#78869d",
+    "bg": "#fbfcfe",
+    "text": "<span>FROM STATION</span>",
+    "target": ".public-search-grid > .public-field:nth-child(1) > span"
+   }
+  ]
+ },
+ {
+  "page": "02-passenger-wrapper",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "10-pax-home",
+  "violations": 8,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.11,
+    "need": "4.5:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h2 class=\"section-title\">Recent Bookings</h2>",
+    "target": ".section-header > .section-title"
+   },
+   {
+    "ratio": 1.11,
+    "need": "4.5:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h2 class=\"section-title\">📢 Alerts &amp; Announcements</h2>",
+    "target": ".section-block:nth-child(5) > .section-title"
+   },
+   {
+    "ratio": 2.1,
+    "need": "4.5:1",
+    "fg": "#a0aec0",
+    "bg": "#f5f7fb",
+    "text": "<p class=\"empty-sub\">No alerts at the moment</p>",
+    "target": ".empty-sub"
+   }
+  ]
+ },
+ {
+  "page": "10-pax-search",
+  "violations": 9,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.11,
+    "need": "3:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h1 class=\"page-title\">Book Tickets</h1>",
+    "target": "#page-search > .page-header > .page-title"
+   },
+   {
+    "ratio": 2.1,
+    "need": "4.5:1",
+    "fg": "#a0aec0",
+    "bg": "#f5f7fb",
+    "text": "<p class=\"page-sub\">Search and book train tickets across India</p>",
+    "target": "#page-search > .page-header > .page-sub"
+   },
+   {
+    "ratio": 3.74,
+    "need": "4.5:1",
+    "fg": "#718096",
+    "bg": "#f5f7fb",
+    "text": "<span class=\"step-label\">Select</span>",
+    "target": "#step-2 > .step-label"
+   }
+  ]
+ },
+ {
+  "page": "10-pax-bookings",
+  "violations": 9,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.11,
+    "need": "3:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h1 class=\"page-title\">My Bookings</h1>",
+    "target": "#page-bookings > .page-header > .page-title"
+   },
+   {
+    "ratio": 3.35,
+    "need": "4.5:1",
+    "fg": "#059669",
+    "bg": "#183740",
+    "text": "<span class=\"status-badge CONFIRMED\">CONFIRMED</span>",
+    "target": ".bfc-header > .CONFIRMED.status-badge"
+   },
+   {
+    "ratio": 3.76,
+    "need": "4.5:1",
+    "fg": "#4f6ef7",
+    "bg": "#1a2035",
+    "text": "<div class=\"bfc-pnr\">PNR: 1087050967</div>",
+    "target": ".bfc-pnr"
+   }
+  ]
+ },
+ {
+  "page": "10-pax-pnr",
+  "violations": 5,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<h2>Enter PNR Number</h2>",
+    "target": ".pnr-search-card > h2"
+   },
+   {
+    "ratio": 1.11,
+    "need": "3:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h1 class=\"page-title\">PNR Enquiry</h1>",
+    "target": "#page-pnr > .page-header > .page-title"
+   },
+   {
+    "ratio": 2.1,
+    "need": "4.5:1",
+    "fg": "#a0aec0",
+    "bg": "#f5f7fb",
+    "text": "<p class=\"page-sub\">Check the current status of any ticket</p>",
+    "target": "#page-pnr > .page-header > .page-sub"
+   }
+  ]
+ },
+ {
+  "page": "10-pax-profile",
+  "violations": 3,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.02,
+    "need": "3:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<h2 id=\"profile-name-display\">Nikita Mitter</h2>",
+    "target": "#profile-name-display"
+   },
+   {
+    "ratio": 1.11,
+    "need": "3:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h1 class=\"page-title\">My Profile</h1>",
+    "target": "#page-profile > .page-header > .page-title"
+   }
+  ]
+ },
+ {
+  "page": "10-pax-passengers",
+  "violations": 10,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<div class=\"pax-card-name\">Janani Dani</div>",
+    "target": ".passenger-card:nth-child(1) > .pax-card-header > div:nth-child(2) > ."
+   },
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<div class=\"pax-card-name\">Oliver Madan</div>",
+    "target": ".passenger-card:nth-child(2) > .pax-card-header > div:nth-child(2) > ."
+   },
+   {
+    "ratio": 1.11,
+    "need": "3:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h1 class=\"page-title\">Saved Passengers</h1>",
+    "target": "#page-passengers > .page-header > .page-title"
+   }
+  ]
+ },
+ {
+  "page": "10-pax-tdr",
+  "violations": 3,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.11,
+    "need": "3:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h1 class=\"page-title\">TDR / Refunds</h1>",
+    "target": "#page-tdr > .page-header > .page-title"
+   },
+   {
+    "ratio": 2.1,
+    "need": "4.5:1",
+    "fg": "#a0aec0",
+    "bg": "#f5f7fb",
+    "text": "<div class=\"empty-sub\">File a Ticket Deposit Receipt if you couldn't travel due to railway",
+    "target": "#tdr-list > .empty-state > .empty-sub"
+   }
+  ]
+ },
+ {
+  "page": "10-pax-grievances",
+  "violations": 3,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.11,
+    "need": "3:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h1 class=\"page-title\">Grievances</h1>",
+    "target": "#page-grievances > .page-header > .page-title"
+   },
+   {
+    "ratio": 2.1,
+    "need": "4.5:1",
+    "fg": "#a0aec0",
+    "bg": "#f5f7fb",
+    "text": "<div class=\"empty-sub\">Report issues for quick resolution</div>",
+    "target": "#grievances-list > .empty-state > .empty-sub"
+   }
+  ]
+ },
+ {
+  "page": "10-pax-alerts",
+  "violations": 3,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.11,
+    "need": "3:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h1 class=\"page-title\">Alerts &amp; Notifications</h1>",
+    "target": "#page-alerts > .page-header > .page-title"
+   },
+   {
+    "ratio": 2.1,
+    "need": "4.5:1",
+    "fg": "#a0aec0",
+    "bg": "#f5f7fb",
+    "text": "<div class=\"empty-sub\">You're all caught up!</div>",
+    "target": "#alerts-list > .empty-state > .empty-sub"
+   }
+  ]
+ },
+ {
+  "page": "19-pax-tdr-modal",
+  "violations": 4,
+  "minRatio": 1.02,
+  "worst": [
+   {
+    "ratio": 1.02,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#1a2035",
+    "text": "<span class=\"topbar-username\" id=\"topbar-username\">Nikita</span>",
+    "target": "#topbar-username"
+   },
+   {
+    "ratio": 1.11,
+    "need": "3:1",
+    "fg": "#e8eaf6",
+    "bg": "#f5f7fb",
+    "text": "<h1 class=\"page-title\">Alerts &amp; Notifications</h1>",
+    "target": "#page-alerts > .page-header > .page-title"
+   },
+   {
+    "ratio": 1.16,
+    "need": "4.5:1",
+    "fg": "#172338",
+    "bg": "#0f1424",
+    "text": "<h3>File TDR (Ticket Deposit Receipt)</h3>",
+    "target": "#modal-file-tdr > .modal > .modal-header > h3"
+   },
+   {
+    "ratio": 2.1,
+    "need": "4.5:1",
+    "fg": "#a0aec0",
+    "bg": "#f5f7fb",
+    "text": "<div class=\"empty-sub\">You're all caught up!</div>",
+    "target": "#alerts-list > .empty-state > .empty-sub"
+   }
+  ]
+ },
+ {
+  "page": "20-staff-1-Duty_Dashboard",
+  "violations": 11,
+  "minRatio": 2.45,
+  "worst": [
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Assigne",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(1) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] text-slate-400 mt-1\">Per-coach duty is not recorded in the databas",
+    "target": ".mt-1"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Operati",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(2) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Journey",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(3) > .mb-1\\.5.text-\\[10px\\"
+   }
+  ]
+ },
+ {
+  "page": "20-staff-2-Passenger_Chart",
+  "violations": 11,
+  "minRatio": 2.45,
+  "worst": [
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Assigne",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(1) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] text-slate-400 mt-1\">Per-coach duty is not recorded in the databas",
+    "target": ".mt-1"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Operati",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(2) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Journey",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(3) > .mb-1\\.5.text-\\[10px\\"
+   }
+  ]
+ },
+ {
+  "page": "20-staff-3-PNR_ID_Scanner",
+  "violations": 11,
+  "minRatio": 2.45,
+  "worst": [
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Assigne",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(1) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] text-slate-400 mt-1\">Per-coach duty is not recorded in the databas",
+    "target": ".mt-1"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Operati",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(2) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Journey",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(3) > .mb-1\\.5.text-\\[10px\\"
+   }
+  ]
+ },
+ {
+  "page": "20-staff-4-Vacancies_RAC",
+  "violations": 11,
+  "minRatio": 2.45,
+  "worst": [
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Assigne",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(1) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] text-slate-400 mt-1\">Per-coach duty is not recorded in the databas",
+    "target": ".mt-1"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Operati",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(2) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Journey",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(3) > .mb-1\\.5.text-\\[10px\\"
+   }
+  ]
+ },
+ {
+  "page": "20-staff-5-On_Spot_Penalties",
+  "violations": 11,
+  "minRatio": 2.45,
+  "worst": [
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Assigne",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(1) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] text-slate-400 mt-1\">Per-coach duty is not recorded in the databas",
+    "target": ".mt-1"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Operati",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(2) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Journey",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(3) > .mb-1\\.5.text-\\[10px\\"
+   }
+  ]
+ },
+ {
+  "page": "20-staff-6-Delays_Platform",
+  "violations": 11,
+  "minRatio": 2.45,
+  "worst": [
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Assigne",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(1) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] text-slate-400 mt-1\">Per-coach duty is not recorded in the databas",
+    "target": ".mt-1"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Operati",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(2) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Journey",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(3) > .mb-1\\.5.text-\\[10px\\"
+   }
+  ]
+ },
+ {
+  "page": "20-staff-7-Crowd_Hygiene",
+  "violations": 11,
+  "minRatio": 2.45,
+  "worst": [
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Assigne",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(1) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] text-slate-400 mt-1\">Per-coach duty is not recorded in the databas",
+    "target": ".mt-1"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Operati",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(2) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Journey",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(3) > .mb-1\\.5.text-\\[10px\\"
+   }
+  ]
+ },
+ {
+  "page": "20-staff-8-Emergency_SOS",
+  "violations": 11,
+  "minRatio": 2.45,
+  "worst": [
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Assigne",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(1) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] text-slate-400 mt-1\">Per-coach duty is not recorded in the databas",
+    "target": ".mt-1"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Operati",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(2) > .mb-1\\.5.text-\\[10px\\"
+   },
+   {
+    "ratio": 2.45,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#f8fafc",
+    "text": "<div class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5\">Journey",
+    "target": ".border-slate-100.p-4.bg-slate-50:nth-child(3) > .mb-1\\.5.text-\\[10px\\"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-dashboard",
+  "violations": 7,
+  "minRatio": 1.65,
+  "worst": [
+   {
+    "ratio": 1.65,
+    "need": "4.5:1",
+    "fg": "#c1cad6",
+    "bg": "#ffffff",
+    "text": "<div class=\"py-12 text-center text-xs text-slate-400 font-medium animate-pulse\">Executing ",
+    "target": ".py-12"
+   },
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<div class=\"py-10 text-center text-xs text-slate-400 font-medium\">Loading recent transacti",
+    "target": ".py-10"
+   },
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<span>Live transaction feed</span>",
+    "target": ".mt-4.pt-3.border-t > span:nth-child(1)"
+   },
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-slate-400\">Auto-refreshed</span>",
+    "target": ".mt-4.pt-3.border-t > .text-slate-400"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-users",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-staff",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-trains",
+  "violations": 1,
+  "minRatio": 3.55,
+  "worst": [
+   {
+    "ratio": 3.55,
+    "need": "4.5:1",
+    "fg": "#ffffff",
+    "bg": "#ea580c",
+    "text": "<span>Add New Train</span>",
+    "target": ".bg-orange-600 > span"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-routes",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-schedules",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-stations",
+  "violations": 10,
+  "minRatio": 2.56,
+  "worst": [
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<div class=\"text-xs text-slate-400 font-mono\">ID: #1</div>",
+    "target": ".hover\\:bg-blue-50\\/40:nth-child(1) > .text-left:nth-child(2) > div > "
+   },
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<div class=\"text-xs text-slate-400 font-mono\">ID: #2</div>",
+    "target": ".hover\\:bg-blue-50\\/40:nth-child(2) > .text-left:nth-child(2) > div > "
+   },
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<div class=\"text-xs text-slate-400 font-mono\">ID: #3</div>",
+    "target": ".hover\\:bg-blue-50\\/40:nth-child(3) > .text-left:nth-child(2) > div > "
+   },
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<div class=\"text-xs text-slate-400 font-mono\">ID: #4</div>",
+    "target": ".hover\\:bg-blue-50\\/40:nth-child(4) > .text-left:nth-child(2) > div > "
+   }
+  ]
+ },
+ {
+  "page": "30-admin-platforms",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-coaches",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-seats",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-fares",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-quotas",
+  "violations": 5,
+  "minRatio": 2.56,
+  "worst": [
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-xs text-slate-400 italic\" title=\"Quota allocation updates require databa",
+    "target": ".hover\\:bg-blue-50\\/40:nth-child(1) > .text-right > .italic.text-slate"
+   },
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-xs text-slate-400 italic\" title=\"Quota allocation updates require databa",
+    "target": ".hover\\:bg-blue-50\\/40:nth-child(2) > .text-right > .italic.text-slate"
+   },
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-xs text-slate-400 italic\" title=\"Quota allocation updates require databa",
+    "target": ".hover\\:bg-blue-50\\/40:nth-child(3) > .text-right > .italic.text-slate"
+   },
+   {
+    "ratio": 2.56,
+    "need": "4.5:1",
+    "fg": "#94a3b8",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-xs text-slate-400 italic\" title=\"Quota allocation updates require databa",
+    "target": ".hover\\:bg-blue-50\\/40:nth-child(4) > .text-right > .italic.text-slate"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-bookings",
+  "violations": 1,
+  "minRatio": 3.55,
+  "worst": [
+   {
+    "ratio": 3.55,
+    "need": "4.5:1",
+    "fg": "#ffffff",
+    "bg": "#ea580c",
+    "text": "<button type=\"submit\" class=\"px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounde",
+    "target": ".bg-orange-600"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-tdr",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-fines",
+  "violations": 0,
+  "minRatio": null,
+  "worst": []
+ },
+ {
+  "page": "30-admin-refund-transactions",
+  "violations": 1,
+  "minRatio": 2.53,
+  "worst": [
+   {
+    "ratio": 2.53,
+    "need": "4.5:1",
+    "fg": "#9ca3af",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-gray-400 text-[11px]\">Demo: credentials prefilled</span>",
+    "target": ".justify-between.text-xs.flex > .text-gray-400"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-incidents",
+  "violations": 1,
+  "minRatio": 2.53,
+  "worst": [
+   {
+    "ratio": 2.53,
+    "need": "4.5:1",
+    "fg": "#9ca3af",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-gray-400 text-[11px]\">Demo: credentials prefilled</span>",
+    "target": ".justify-between.text-xs.flex > .text-gray-400"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-grievances",
+  "violations": 1,
+  "minRatio": 2.53,
+  "worst": [
+   {
+    "ratio": 2.53,
+    "need": "4.5:1",
+    "fg": "#9ca3af",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-gray-400 text-[11px]\">Demo: credentials prefilled</span>",
+    "target": ".justify-between.text-xs.flex > .text-gray-400"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-reports",
+  "violations": 1,
+  "minRatio": 2.53,
+  "worst": [
+   {
+    "ratio": 2.53,
+    "need": "4.5:1",
+    "fg": "#9ca3af",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-gray-400 text-[11px]\">Demo: credentials prefilled</span>",
+    "target": ".justify-between.text-xs.flex > .text-gray-400"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-audit-logs",
+  "violations": 1,
+  "minRatio": 2.53,
+  "worst": [
+   {
+    "ratio": 2.53,
+    "need": "4.5:1",
+    "fg": "#9ca3af",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-gray-400 text-[11px]\">Demo: credentials prefilled</span>",
+    "target": ".justify-between.text-xs.flex > .text-gray-400"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-notifications",
+  "violations": 1,
+  "minRatio": 2.53,
+  "worst": [
+   {
+    "ratio": 2.53,
+    "need": "4.5:1",
+    "fg": "#9ca3af",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-gray-400 text-[11px]\">Demo: credentials prefilled</span>",
+    "target": ".justify-between.text-xs.flex > .text-gray-400"
+   }
+  ]
+ },
+ {
+  "page": "30-admin-settings",
+  "violations": 1,
+  "minRatio": 2.53,
+  "worst": [
+   {
+    "ratio": 2.53,
+    "need": "4.5:1",
+    "fg": "#9ca3af",
+    "bg": "#ffffff",
+    "text": "<span class=\"text-gray-400 text-[11px]\">Demo: credentials prefilled</span>",
+    "target": ".justify-between.text-xs.flex > .text-gray-400"
+   }
+  ]
+ }
+]

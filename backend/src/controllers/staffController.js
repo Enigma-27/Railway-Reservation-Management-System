@@ -388,11 +388,25 @@ async function getScheduleChart(req, res, next) {
       `SELECT cs.snapshot_id, cs.schedule_id, cs.pnr, cs.passenger_no,
               cs.coach_no, cs.seat_no, cs.berth_type, cs.status,
               cs.from_station_id, cs.to_station_id, cs.concession_flag, cs.generated_at,
+              r.status AS reservation_status,
+              (SELECT tv.result FROM TICKET_VERIFICATION tv WHERE tv.pnr = cs.pnr AND tv.passenger_no = cs.passenger_no ORDER BY tv.verify_id DESC LIMIT 1) AS verification_result,
+              (SELECT tv.remarks FROM TICKET_VERIFICATION tv WHERE tv.pnr = cs.pnr AND tv.passenger_no = cs.passenger_no ORDER BY tv.verify_id DESC LIMIT 1) AS verification_remarks,
+              (SELECT tv.verified_at FROM TICKET_VERIFICATION tv WHERE tv.pnr = cs.pnr AND tv.passenger_no = cs.passenger_no ORDER BY tv.verify_id DESC LIMIT 1) AS verified_at,
               pb.name AS passenger_name,
+              pb.age AS passenger_age,
+              pb.gender AS passenger_gender,
+              b.quota AS booking_quota,
+              sc.class_code AS class_code,
+              DATE_FORMAT(ts.journey_date, '%Y-%m-%d') AS journey_date,
+              ts.train_id AS train_id,
               s_from.station_code AS from_station_code,
               s_to.station_code AS to_station_code
        FROM CHART_SNAPSHOT cs
        LEFT JOIN PASSENGER_BOOKING pb ON cs.pnr = pb.pnr AND cs.passenger_no = pb.passenger_no
+       LEFT JOIN RESERVATION r ON r.pnr = cs.pnr AND r.passenger_no = cs.passenger_no
+       LEFT JOIN BOOKING b ON cs.pnr = b.pnr
+       LEFT JOIN SEAT_CLASS sc ON b.class_id = sc.class_id
+       LEFT JOIN TRAIN_SCHEDULE ts ON cs.schedule_id = ts.schedule_id
        LEFT JOIN STATION s_from ON cs.from_station_id = s_from.station_id
        LEFT JOIN STATION s_to ON cs.to_station_id = s_to.station_id
        WHERE cs.schedule_id = ?
@@ -406,10 +420,21 @@ async function getScheduleChart(req, res, next) {
       pnr: r.pnr,
       passengerNo: r.passenger_no,
       passengerName: r.passenger_name || null,
+      passengerAge: r.passenger_age !== null && r.passenger_age !== undefined ? Number(r.passenger_age) : null,
+      passengerGender: r.passenger_gender || null,
+      classType: r.class_code || null,
+      quota: r.booking_quota || null,
+      journeyDate: r.journey_date || null,
+      trainId: r.train_id !== null && r.train_id !== undefined ? Number(r.train_id) : null,
       coachNo: r.coach_no,
       seatNo: r.seat_no,
       berthType: r.berth_type,
       status: r.status,
+      // Live state from the database (the chart itself is a frozen snapshot): boarding and the latest verification
+      reservationStatus: r.reservation_status || null,
+      verificationResult: r.verification_result || null,
+      verificationRemarks: r.verification_remarks || null,
+      verifiedAt: r.verified_at ? String(r.verified_at) : null,
       fromStationId: r.from_station_id,
       fromStationCode: r.from_station_code || null,
       toStationId: r.to_station_id,
@@ -991,54 +1016,6 @@ async function reportCleanliness(req, res, next) {
   }
 }
 
-/**
- * POST /api/staff/promote (STAFF and ADMIN roles)
- * Calls sp_promote_passenger directly in SQL without any business logic in Node
- */
-async function promotePassenger(req, res, next) {
-  try {
-    const scheduleId = req.body.scheduleId || req.body.schedule_id;
-    const classId = req.body.classId || req.body.class_id;
-    const seatId = req.body.seatId || req.body.freedSeatId || req.body.seat_id || null;
-
-    const parsedScheduleId = parseInt(scheduleId, 10);
-    const parsedClassId = parseInt(classId, 10);
-    const parsedSeatId = seatId ? parseInt(seatId, 10) : null;
-
-    if (!parsedScheduleId || isNaN(parsedScheduleId) || parsedScheduleId <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'BAD_REQUEST', message: 'Valid positive scheduleId is required' }
-      });
-    }
-
-    if (!parsedClassId || isNaN(parsedClassId) || parsedClassId <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'BAD_REQUEST', message: 'Valid positive classId is required' }
-      });
-    }
-
-    // Call stored procedure sp_promote_passenger
-    await pool.query(
-      'CALL sp_promote_passenger(?, ?, ?)',
-      [parsedScheduleId, parsedClassId, parsedSeatId]
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: 'Promotion executed successfully via sp_promote_passenger',
-      data: {
-        scheduleId: parsedScheduleId,
-        classId: parsedClassId,
-        seatId: parsedSeatId
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-}
-
 module.exports = {
   requireStaffRole,
   requireStaffOrAdminRole,
@@ -1052,6 +1029,5 @@ module.exports = {
   reportIncident,
   logDelay,
   reportCrowd,
-  reportCleanliness,
-  promotePassenger
+  reportCleanliness
 };

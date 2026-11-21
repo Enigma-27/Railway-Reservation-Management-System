@@ -1,21 +1,19 @@
 /**
- * Central API Service Layer - Railway Reservation System (Passenger Portal)
+ * Central API Service Layer - RRMS passenger area (Railway Reservation & Management System)
  * Real REST API client implementing docs/API_CONTRACT.md for E1 features.
- * E2 features are re-exported unchanged from mockService.js until E2 implementation.
+ * All data comes from the real backend API.
  */
 
 // ─── HTTP Client Helper ───────────────────────────────────────────────────────
 
 async function request(method, path, body = null, needsAuth = false) {
-  const baseUrl = (window.RAILCONNECT_CONFIG && window.RAILCONNECT_CONFIG.API_BASE_URL) || 'http://localhost:5000';
+  const baseUrl = (window.RRMS_CONFIG && window.RRMS_CONFIG.API_BASE_URL) || 'http://localhost:5000';
   const url = `${baseUrl}${path}`;
 
+  // ONE session for the whole site: the landing page stores the token under rrms_token
   let token = null;
   try {
-    const stored = sessionStorage.getItem('railconnect_user');
-    if (stored) {
-      token = JSON.parse(stored)?.token || null;
-    }
+    token = localStorage.getItem('rrms_token') || null;
   } catch (_) {
     token = null;
   }
@@ -56,10 +54,13 @@ async function request(method, path, body = null, needsAuth = false) {
   }
 
   if (response.status === 401 && token) {
-    sessionStorage.removeItem('railconnect_user');
+    // Expired or bad token: drop the shared session; the page then sends the user back to the landing page
+    localStorage.removeItem('rrms_token');
+    localStorage.removeItem('rrms_user');
     const err = new Error(payload?.error?.message || 'Unauthorized');
     err.code = payload?.error?.code || 'UNAUTHORIZED';
     err.status = 401;
+    err.data = payload?.data;
     throw err;
   }
 
@@ -68,6 +69,9 @@ async function request(method, path, body = null, needsAuth = false) {
     const err = new Error(msg);
     err.code = payload?.error?.code || 'REQUEST_FAILED';
     err.status = response.status;
+    // Keep the full reply body: a late payment is HTTP 200 with success:false and data.refund
+    err.data = payload?.data;
+    err.payload = payload;
     throw err;
   }
 
@@ -163,6 +167,10 @@ export async function searchTrains({ sourceStationId, destinationStationId, jour
       waitingListCount: ac.waitingListCount,
       baseFare: ac.baseFare,
       estimatedTotalFare: ac.estimatedTotalFare,
+      // Capacities from the server decide RAC open / waiting list open / waiting list full
+      racCapacity: ac.racCapacity,
+      waitingListCapacity: ac.waitingListCapacity,
+      waitingListFull: ac.waitingListFull,
       quota: quota
     }));
 
@@ -191,53 +199,6 @@ export async function getAvailability(trainId, journeyDate, classType, quota = '
   if (passengerCount) params.set('passengerCount', String(passengerCount));
 
   return request('GET', `/api/trains/${encodeURIComponent(trainId)}/availability?${params.toString()}`);
-}
-
-/**
- * 6. Passenger Login: POST /api/auth/passenger/login
- * Calls login, then fetches GET /api/auth/me to merge profile fields (e.g. email, phone).
- */
-export async function loginPassenger(email, password) {
-  const loginData = await request('POST', '/api/auth/passenger/login', { email, password });
-
-  // Use the new token to fetch /api/auth/me
-  try {
-    const meRes = await fetch(`${(window.RAILCONNECT_CONFIG && window.RAILCONNECT_CONFIG.API_BASE_URL) || 'http://localhost:5000'}/api/auth/me`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${loginData.token}`
-      }
-    });
-    if (meRes.ok) {
-      const mePayload = await meRes.json();
-      if (mePayload?.success && mePayload?.data) {
-        return {
-          userId: loginData.userId,
-          name: loginData.name,
-          role: loginData.role,
-          aadhaarVerified: loginData.aadhaarVerified,
-          monthlyBookingsUsed: loginData.monthlyBookingsUsed,
-          monthlyBookingsAllowed: loginData.monthlyBookingsAllowed,
-          token: loginData.token,
-          email: mePayload.data.email,
-          phone: mePayload.data.phone,
-          accountStatus: mePayload.data.accountStatus,
-          createdAt: mePayload.data.createdAt
-        };
-      }
-    }
-  } catch (_) {
-    // If /me fetch fails, fallback to loginData
-  }
-
-  return loginData;
-}
-
-/**
- * 7. Passenger Register: POST /api/auth/passenger/register
- */
-export async function registerPassenger({ name, email, phone, password }) {
-  return request('POST', '/api/auth/passenger/register', { name, email, phone, password });
 }
 
 /**
@@ -275,6 +236,26 @@ export async function createBooking(payload) {
   return request('POST', '/api/bookings', payload, true);
 }
 
+/** Real booking rules (limits, senior ages, Tatkal rules, concession list): GET /api/booking-rules (public) */
+export async function getBookingRules() {
+  return request('GET', '/api/booking-rules', null, false);
+}
+
+/** Read-only fare lines, rule problems and estimated status per passenger: POST /api/bookings/fare-preview */
+export async function farePreview(payload) {
+  return request('POST', '/api/bookings/fare-preview', payload, true);
+}
+
+/** Give up a booking that is still waiting for payment: POST /api/bookings/:pnr/cancel-unpaid */
+export async function cancelUnpaidBooking(pnr) {
+  return request('POST', `/api/bookings/${encodeURIComponent(String(pnr).trim())}/cancel-unpaid`, {}, true);
+}
+
+/** Which TDR reasons each passenger of the PNR can use right now: GET /api/tdr/eligibility/:pnr */
+export async function getTdrEligibility(pnr) {
+  return request('GET', `/api/tdr/eligibility/${encodeURIComponent(String(pnr).trim())}`, null, true);
+}
+
 /**
  * 12. Hold Status: GET /api/bookings/:pnr/hold
  * Returns hold expiry as string and secondsRemaining computed by MySQL.
@@ -301,6 +282,14 @@ export async function verifyRazorpayPayment({ pnr, razorpayOrderId, razorpayPaym
     razorpayPaymentId,
     razorpaySignature
   }, true);
+}
+
+/**
+ * 14b. Ask the server to check with Razorpay what happened to the orders of a PNR: POST /api/payments/razorpay/reconcile
+ * Used when the browser lost the answer after paying, and by the "Check payment status" button.
+ */
+export async function reconcilePayment(pnr) {
+  return request('POST', '/api/payments/razorpay/reconcile', { pnr: String(pnr).trim() }, true);
 }
 
 /**
@@ -450,44 +439,74 @@ export function formatCurrency(amount) {
 
 // ─── Unimplemented Backend Endpoints (Graceful Stubs) ─────────────────────────
 
-export async function getSavedPassengers() {
-  return [];
-}
-
-export async function savePassenger() {
-  const error = new Error('This feature is not available yet.');
-  error.code = 'NOT_AVAILABLE';
-  throw error;
-}
-
-export async function updatePassenger() {
-  const error = new Error('This feature is not available yet.');
-  error.code = 'NOT_AVAILABLE';
-  throw error;
-}
-
-export async function deletePassenger() {
-  const error = new Error('This feature is not available yet.');
-  error.code = 'NOT_AVAILABLE';
-  throw error;
-}
-
 export async function updateProfile() {
-  const error = new Error('This feature is not available yet.');
+  const error = new Error('Changing your name or phone number is not available yet. Your profile details are shown for viewing only.');
   error.code = 'NOT_AVAILABLE';
   throw error;
 }
 
-// ─── Other Functions (Re-exported from mockService.js) ─────────────────────────
+// ─── Saved Passengers: /api/saved-passengers ──────────────────────────────────
+// The server stores no concession on a saved passenger (concession is chosen per booking),
+// so concessionType is always 'NONE' here.
 
-export {
-  getTrainById,
-  getPublicAlerts,
-  searchConnectingJourneys,
-  getBookingByPNR,
-  getUserNotifications,
-  markNotificationRead,
-  getSchedules,
-  getRoutes
-} from './mockService.js';
+function mapSavedPassenger(p) {
+  return {
+    passengerId: p.passengerId,
+    name: p.name,
+    age: p.age,
+    gender: p.gender,
+    idProofType: p.idProofType,
+    idProofReference: p.idProofReference,
+    disabilityType: p.disabilityType || 'NONE',
+    berthPreference: p.berthPreference || 'NO_BERTH',
+    concessionType: 'NONE'
+  };
+}
 
+function savedPassengerBody(p) {
+  return {
+    name: p.name,
+    age: p.age,
+    gender: p.gender,
+    idProofType: p.idProofType,
+    idProofReference: p.idProofReference,
+    disabilityType: p.disabilityType,
+    berthPreference: p.berthPreference
+  };
+}
+
+/** 12a. List own saved passengers: GET /api/saved-passengers */
+export async function getSavedPassengers() {
+  const list = await request('GET', '/api/saved-passengers', null, true);
+  return (Array.isArray(list) ? list : []).map(mapSavedPassenger);
+}
+
+/** 12b. Add: POST /api/saved-passengers */
+export async function savePassenger(pax) {
+  const created = await request('POST', '/api/saved-passengers', savedPassengerBody(pax), true);
+  return mapSavedPassenger(created);
+}
+
+/** 12c. Edit: PUT /api/saved-passengers/:id */
+export async function updatePassenger(id, pax) {
+  const updated = await request('PUT', `/api/saved-passengers/${encodeURIComponent(id)}`, savedPassengerBody(pax), true);
+  return mapSavedPassenger(updated);
+}
+
+/** 12d. Delete: DELETE /api/saved-passengers/:id (409 if used by a booking) */
+export async function deletePassenger(id) {
+  return request('DELETE', `/api/saved-passengers/${encodeURIComponent(id)}`, null, true);
+}
+
+// ─── Notifications: /api/notifications ────────────────────────────────────────
+
+/** Own notifications, newest first: GET /api/notifications */
+export async function getUserNotifications() {
+  const list = await request('GET', '/api/notifications', null, true);
+  return Array.isArray(list) ? list : [];
+}
+
+/** Mark one notification read: PUT /api/notifications/:id/read */
+export async function markNotificationRead(notificationId) {
+  return request('PUT', `/api/notifications/${encodeURIComponent(String(notificationId))}/read`, {}, true);
+}

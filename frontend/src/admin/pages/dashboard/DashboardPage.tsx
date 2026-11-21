@@ -449,7 +449,7 @@ export const DashboardPage: React.FC = () => {
 
         {/* Tables */}
         {isLoading ? (
-          <div className="py-12 text-center text-xs text-slate-400 font-medium animate-pulse">
+          <div className="py-12 text-center text-xs text-slate-500 font-medium">
             Executing SQL analytical queries from railway_db...
           </div>
         ) : !rankReports ? (

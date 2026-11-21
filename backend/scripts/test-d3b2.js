@@ -368,6 +368,12 @@ async function runTests() {
     console.log(`  Master inventory audit after RAC no-show: ${auditAfterRacNoShow.mismatches} mismatches of ${auditAfterRacNoShow.total}`);
     assert(auditAfterRacNoShow.mismatches === 0, 'Inventory audit MUST stay 0 mismatches of 1,015 after RAC no-show');
 
+    // POST /api/staff/promote was removed on purpose: promotion happens only inside sp_promote_passenger
+    // (on cancel, no-show, TDR and chart time). The route must not exist any more.
+    const removedPromote = await request('POST', '/api/staff/promote', { pnr: '2849100015', passengerNo: 1 }, tokenStaff);
+    assert(removedPromote.status === 404, 'POST /api/staff/promote no longer exists (404)');
+    assert(removedPromote.data.error && removedPromote.data.error.code === 'NOT_FOUND', 'Removed promote route answers the standard NOT_FOUND error');
+
     // Clean up temporary staff assignment
     await pool.query('DELETE FROM STAFF_ASSIGNMENT WHERE assign_id = 8888');
 

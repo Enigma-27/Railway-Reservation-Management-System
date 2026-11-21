@@ -149,3 +149,22 @@ FROM TDR_FILING tf
 LEFT JOIN ADMIN a ON tf.reviewed_by = a.admin_id
 LEFT JOIN USER_ACCOUNT u ON a.user_id = u.user_id
 LEFT JOIN REFUND r ON tf.tdr_ref_no = r.tdr_ref_no;
+
+-- -----------------------------------------------------------------------------
+-- 6. vw_refund_payout_summary
+-- Refund money by reason and status. Money actually paid out is the PROCESSED
+-- column only. PENDING (waiting for the gateway) and FAILED (will be retried) are
+-- shown separately and are never counted as paid out.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW vw_refund_payout_summary AS
+SELECT
+    r.reason,
+    COUNT(*) AS refund_count,
+    COALESCE(SUM(CASE WHEN r.status = 'PROCESSED' THEN r.amount END), 0) AS processed_amount,
+    COALESCE(SUM(CASE WHEN r.status = 'PENDING'   THEN r.amount END), 0) AS pending_amount,
+    COALESCE(SUM(CASE WHEN r.status = 'FAILED'    THEN r.amount END), 0) AS failed_amount,
+    SUM(r.status = 'PROCESSED') AS processed_count,
+    SUM(r.status = 'PENDING')   AS pending_count,
+    SUM(r.status = 'FAILED')    AS failed_count
+FROM REFUND r
+GROUP BY r.reason;

@@ -1,34 +1,79 @@
-import React, { useState } from 'react';
-import { Shield, KeyRound, Server, CheckCircle2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Shield, KeyRound, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
-import { API_CONFIG } from '../../config/api.config';
+import { authService } from '../../services/authService';
 import { PageHeader } from '../../components/PageHeader';
+
+// SETTING keys that the database functions and procedures do NOT read.
+// Changing them is saved and audited, but fare and refund results do not change.
+// Only the settings the database does NOT read yet carry the "Reference only" badge.
+// GST_RATE_AC, INSURANCE_PREMIUM_PER_PASSENGER, DYNAMIC_FARE_ENABLED, CONCESSION_SENIOR_ENABLED,
+// MIN_CHARGEABLE_DISTANCE_KM, BOOKING_WINDOW_DAYS and CLERKAGE_PER_PASSENGER now drive the fare and refund
+// functions, so a change here changes the next fare or refund.
+const REFERENCE_ONLY_SETTING_KEYS = new Set([
+  'MAX_PASSENGERS_PER_PNR',
+  'MAX_PASSENGERS_PER_PNR_TATKAL',
+  'CHART_HOURS_BEFORE_ORIGIN_DEPARTURE',
+]);
 
 export const SettingsPage: React.FC = () => {
   const { user } = useAuth();
+  const [email, setEmail] = useState<string | null>(null);
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
   const [pwSuccess, setPwSuccess] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSubmitting, setPwSubmitting] = useState(false);
 
-  const handlePasswordSubmit = (e: React.FormEvent) => {
+  // Real email of the logged-in admin, from the server
+  useEffect(() => {
+    let cancelled = false;
+    authService
+      .getOwnProfile()
+      .then((p) => {
+        if (!cancelled) setEmail(p.email);
+      })
+      .catch(() => {
+        if (!cancelled) setEmail(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPw !== confirmPw) {
-      alert('New passwords do not match.');
+    setPwError(null);
+    setPwSuccess(false);
+    if (newPw.length < 8) {
+      setPwError('The new password must be at least 8 characters long.');
       return;
     }
-    setPwSuccess(true);
-    setCurrentPw('');
-    setNewPw('');
-    setConfirmPw('');
-    setTimeout(() => setPwSuccess(false), 4000);
+    if (newPw !== confirmPw) {
+      setPwError('The new password and its confirmation do not match.');
+      return;
+    }
+    setPwSubmitting(true);
+    try {
+      await authService.changePassword(currentPw, newPw);
+      setPwSuccess(true);
+      setCurrentPw('');
+      setNewPw('');
+      setConfirmPw('');
+      setTimeout(() => setPwSuccess(false), 6000);
+    } catch (err: any) {
+      setPwError(err?.message || 'The password could not be changed.');
+    } finally {
+      setPwSubmitting(false);
+    }
   };
 
   return (
     <div className="space-y-6 max-w-4xl">
       <PageHeader
         title="Administrator Settings & Configuration"
-        description="Manage administrator profile, security credentials, and Phase 3 REST API backend integration toggle."
+        description="Manage your administrator profile, your password, and the system operating parameters."
       />
 
       {/* Admin Profile Overview */}
@@ -39,7 +84,7 @@ export const SettingsPage: React.FC = () => {
           </div>
           <div>
             <h3 className="text-lg font-bold text-slate-900">{user?.name || 'Administrator'}</h3>
-            <p className="text-xs text-slate-500 font-mono mt-0.5">Admin ID: #{user?.userId || 7}</p>
+            <p className="text-xs text-slate-500 font-mono mt-0.5">Admin ID: #{user?.userId ?? '—'}</p>
             <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-xs font-semibold">
               <Shield className="w-3.5 h-3.5" />
               <span>Full System Authority (ADMIN)</span>
@@ -51,7 +96,7 @@ export const SettingsPage: React.FC = () => {
           <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
             <span className="text-slate-400 font-semibold block uppercase">Official Email</span>
             <span className="text-slate-900 font-mono font-medium text-sm">
-              admin@railways.gov.in
+              {email ?? '—'}
             </span>
           </div>
           <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -60,54 +105,6 @@ export const SettingsPage: React.FC = () => {
               Ministry of Railways / Central Operations
             </span>
           </div>
-        </div>
-      </div>
-
-      {/* Phase 3 Backend Integration Toggle Status */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600">
-            <Server className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-900">
-              API Connection Architecture & Mock Layer
-            </h3>
-            <p className="text-xs text-slate-500">
-              Zero-drift architecture prepared for drop-in Phase 3 backend integration.
-            </p>
-          </div>
-        </div>
-
-        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-slate-600 font-medium">Active Data Mode:</span>
-            <span
-              className={`font-mono font-bold px-2.5 py-1 rounded-md text-xs ${
-                API_CONFIG.USE_MOCK
-                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                  : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-              }`}
-            >
-              {API_CONFIG.USE_MOCK ? 'MOCK DATA LAYER (ACTIVE)' : 'LIVE REST API (ACTIVE)'}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-slate-600 font-medium">Configured REST Base URL:</span>
-            <span className="font-mono text-slate-800 bg-white px-2 py-1 rounded border border-slate-200">
-              {API_CONFIG.BASE_URL}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-slate-600 font-medium">Simulated Network Latency:</span>
-            <span className="font-mono text-slate-800">{API_CONFIG.DEFAULT_MOCK_LATENCY_MS} ms</span>
-          </div>
-
-          <p className="text-meta pt-2 border-t border-slate-200 leading-relaxed">
-            💡 To switch to the live backend when Phase 3 is deployed: set <code className="bg-white px-1 py-0.5 rounded border border-slate-200 text-slate-800 font-mono">VITE_USE_MOCK=false</code> in <code className="bg-white px-1 py-0.5 rounded border border-slate-200 text-slate-800 font-mono">.env</code>. The entire admin dashboard will instantly consume real HTTP REST endpoints without any UI or service code changes.
-          </p>
         </div>
       </div>
 
@@ -129,7 +126,14 @@ export const SettingsPage: React.FC = () => {
         {pwSuccess && (
           <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>Password updated successfully.</span>
+            <span>Password updated successfully. Use the new password the next time you sign in.</span>
+          </div>
+        )}
+
+        {pwError && (
+          <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600" />
+            <span>{pwError}</span>
           </div>
         )}
 
@@ -180,9 +184,10 @@ export const SettingsPage: React.FC = () => {
 
           <button
             type="submit"
-            className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
+            disabled={pwSubmitting}
+            className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
           >
-            Update Password
+            {pwSubmitting ? 'Updating...' : 'Update Password'}
           </button>
         </form>
       </div>
@@ -238,6 +243,9 @@ const SystemSettingsSection: React.FC = () => {
         <div>
           <h3 className="text-base font-bold text-slate-900">System Operating Parameters (SETTING)</h3>
           <p className="text-xs text-slate-500">Live operational rules, holding timers, clerkage fees, and quota limits.</p>
+          <p className="text-[11px] text-amber-700 mt-1">
+            Fare and refund settings (GST, insurance premium, clerkage, minimum chargeable distance, dynamic fare, senior concession, booking window) are read by the database: a change applies to the next fare or refund. Rows marked "Reference only" are saved and audited, but the booking and chart rules still use built-in numbers for them.
+          </p>
         </div>
         <button
           onClick={loadSettings}
@@ -267,7 +275,15 @@ const SystemSettingsSection: React.FC = () => {
             <div key={s.settingKey} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="max-w-md">
                 <span className="font-mono font-bold text-slate-800">{s.settingKey}</span>
+                {REFERENCE_ONLY_SETTING_KEYS.has(s.settingKey) && (
+                  <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold align-middle">
+                    Reference only
+                  </span>
+                )}
                 <p className="text-slate-500 text-[11px] mt-0.5">{s.description || 'System configuration parameter'}</p>
+                {REFERENCE_ONLY_SETTING_KEYS.has(s.settingKey) && (
+                  <p className="text-amber-700 text-[11px]">Reference only. The booking and chart rules still use built-in numbers for this value.</p>
+                )}
                 {s.updatedAt && (
                   <span className="text-[10px] text-slate-400 font-mono">Updated: {s.updatedAt}</span>
                 )}

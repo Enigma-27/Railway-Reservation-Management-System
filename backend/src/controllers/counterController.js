@@ -3,6 +3,7 @@ const AppError = require('../utils/appError');
 const { CANONICAL_ERROR_MESSAGES, CANONICAL_ERROR_STATUS_CODES } = require('../middleware/errorHandler');
 const { createNotification } = require('../services/notificationService');
 const { logActivity } = require('../services/activityLogService');
+const { assertPassengerLimit } = require('./../services/bookingRulesService');
 
 /**
  * 4.4 Station Counter Booking API
@@ -45,6 +46,8 @@ async function createCounterBooking(req, res, next) {
     if (!Array.isArray(passengers) || passengers.length === 0) {
       throw new AppError('VALIDATION_ERROR', 'At least one passenger is required', 400);
     }
+    // Same limit as the online booking: MAX_PASSENGERS_PER_PNR (6), MAX_PASSENGERS_PER_PNR_TATKAL (4) for Tatkal
+    await assertPassengerLimit(req.body.requestedQuota || req.body.quota || 'GENERAL', passengers.length);
 
     // 1. Resolve stop details from ROUTE_STOP
     const [stopRows] = await pool.query(
@@ -95,33 +98,60 @@ async function createCounterBooking(req, res, next) {
     }
     const classId = classRows[0].class_id;
 
-    // 5. Saved passenger ID fallback
-    const targetUserId = (!isWalkin && registeredUserId) ? registeredUserId : 50008;
-    let defaultSavedId = 7;
-    const [savedPassRows] = await pool.query(
-      'SELECT passenger_id FROM SAVED_PASSENGER WHERE user_id = ? LIMIT 1',
-      [targetUserId]
-    );
-    if (savedPassRows.length > 0) {
-      defaultSavedId = savedPassRows[0].passenger_id;
-    } else {
-      const [anySaved] = await pool.query('SELECT passenger_id FROM SAVED_PASSENGER LIMIT 1');
-      if (anySaved.length > 0) {
-        defaultSavedId = anySaved[0].passenger_id;
+    // 5. Resolve the account the booking is made for.
+    // Walk-in: shared COUNTER_WALKIN account. Registered passenger: must exist, be a PASSENGER and be ACTIVE.
+    let targetUserId = 50008;
+    if (!isWalkin && registeredUserId) {
+      const parsedUserId = parseInt(registeredUserId, 10);
+      if (isNaN(parsedUserId) || parsedUserId <= 0) {
+        throw new AppError('VALIDATION_ERROR', 'registeredUserId must be a positive number', 400);
       }
+      const [userRows] = await pool.query(
+        'SELECT user_id, role, account_status FROM USER_ACCOUNT WHERE user_id = ?',
+        [parsedUserId]
+      );
+      if (userRows.length === 0) {
+        throw new AppError('NOT_FOUND', `Registered user ${parsedUserId} not found`, 404);
+      }
+      if (userRows[0].role !== 'PASSENGER') {
+        throw new AppError('VALIDATION_ERROR', 'registeredUserId must belong to a PASSENGER account', 400);
+      }
+      if (userRows[0].account_status !== 'ACTIVE') {
+        throw new AppError('VALIDATION_ERROR', 'registeredUserId belongs to an account that is not ACTIVE', 400);
+      }
+      targetUserId = parsedUserId;
     }
 
-    // 6. Format passengers array
-    const formattedPassengers = passengers.map(p => ({
-      saved_passenger_id: p.saved_passenger_id || p.savedPassengerId || defaultSavedId,
-      name: p.name,
-      age: Number(p.age),
-      gender: p.gender,
-      concession_type: p.concession_type || p.concessionType || 'NONE',
-      concession_proof_type: p.concession_proof_type || p.concessionProofType || p.idProofType || null,
-      concession_proof_ref: p.concession_proof_ref || p.concessionProofRef || p.idProofReference || null,
-      berth_preference: p.berth_preference || p.berthPreference || 'NO_BERTH'
-    }));
+    // 6. Format passengers array.
+    // A saved passenger id is used only if it belongs to the account being booked for.
+    // Otherwise saved_passenger_id is NULL (never another user's saved passenger).
+    const formattedPassengers = [];
+    for (const p of passengers) {
+      const rawSavedId = p.saved_passenger_id || p.savedPassengerId;
+      let verifiedSavedId = null;
+      if (rawSavedId !== undefined && rawSavedId !== null && rawSavedId !== '') {
+        const parsedSavedId = parseInt(rawSavedId, 10);
+        if (!isNaN(parsedSavedId) && parsedSavedId > 0) {
+          const [ownerRows] = await pool.query(
+            'SELECT passenger_id FROM SAVED_PASSENGER WHERE passenger_id = ? AND user_id = ?',
+            [parsedSavedId, targetUserId]
+          );
+          if (ownerRows.length > 0) {
+            verifiedSavedId = parsedSavedId;
+          }
+        }
+      }
+      formattedPassengers.push({
+        saved_passenger_id: verifiedSavedId,
+        name: p.name,
+        age: Number(p.age),
+        gender: p.gender,
+        concession_type: p.concession_type || p.concessionType || 'NONE',
+        concession_proof_type: p.concession_proof_type || p.concessionProofType || p.idProofType || null,
+        concession_proof_ref: p.concession_proof_ref || p.concessionProofRef || p.idProofReference || null,
+        berth_preference: p.berth_preference || p.berthPreference || 'NO_BERTH'
+      });
+    }
 
     const paymentMethod = (payment && payment.method) ? payment.method.toUpperCase() : 'CASH';
     const p_manage_tx = 1;

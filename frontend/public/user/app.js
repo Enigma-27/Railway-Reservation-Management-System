@@ -1,9 +1,10 @@
 /**
- * RailConnect – Passenger Portal Application
- * Main controller for all dashboard functionality.
+ * RRMS – Passenger area (Railway Reservation & Management System)
+ * Main controller for the signed-in passenger pages. Sign-in lives on the landing page ("/").
  */
 
 import * as Service from './services/apiService.js';
+import { createPassengerStep } from './passenger-step.js';
 
 // ════════════════════════════════════════════════════════════════ STATE
 const State = {
@@ -29,166 +30,98 @@ const State = {
   }
 };
 
+// ════════════════════════════════════════════════════════════════ SESSION (shared with the whole site)
+// ONE session for every role: the landing page signs in and stores rrms_token + rrms_user in localStorage
+// (frontend/src/auth/session.ts). This area never shows a login form. No session, or another role: back to "/".
+function readSession() {
+  try {
+    const token = localStorage.getItem('rrms_token');
+    const user = JSON.parse(localStorage.getItem('rrms_user') || 'null');
+    if (!token || !user || user.role !== 'PASSENGER') return null;
+    return { token, user };
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearSession() {
+  localStorage.removeItem('rrms_token');
+  localStorage.removeItem('rrms_user');
+}
+
+function redirectToLanding() {
+  window.location.replace('/');
+}
+
+function saveUser() {
+  localStorage.setItem('rrms_user', JSON.stringify({ ...State.user, role: 'PASSENGER' }));
+}
+
+// A search typed on the landing page is kept in sessionStorage; run it now and show the results.
+async function continuePendingSearch() {
+  let pending = null;
+  try {
+    pending = JSON.parse(sessionStorage.getItem('rrms_pending_search') || 'null');
+    sessionStorage.removeItem('rrms_pending_search');
+  } catch (_) {
+    pending = null;
+  }
+  if (!pending || !pending.fromId || !pending.toId || !pending.date) return;
+  document.getElementById('search-from').value = String(pending.fromId);
+  document.getElementById('search-to').value = String(pending.toId);
+  document.getElementById('search-date').value = pending.date;
+  document.getElementById('search-class').value = pending.classType || '';
+  navigateTo('search');
+  await handleSearchTrains(new Event('submit', { cancelable: true }));
+  // Coming from Live Trains "Book this train": select that train and class in the results
+  if (pending.trainId) {
+    const card = document.getElementById(`train-card-${pending.trainId}`);
+    if (card) {
+      const chip = Array.from(card.querySelectorAll('.class-chip')).find(c => c.querySelector('.class-type')?.textContent.trim() === pending.classType);
+      if (chip) await selectClassForTrain(pending.trainId, pending.classType, chip);
+      card.classList.add('preselected');
+      card.scrollIntoView({ block: 'center' });
+      showToast('The train and class you chose on Live Trains are selected. Press "Book Now" to continue.', 'info');
+    } else {
+      showToast('That train has no seats to show for this search. Pick another train below.', 'info');
+    }
+  }
+}
+
+const passengerStep = createPassengerStep({ State, Service, showToast: (m, t) => window.showToast(m, t), escapeHtml, formatMoney });
+
 // ════════════════════════════════════════════════════════════════ INIT
 window.addEventListener('DOMContentLoaded', async () => {
   setCurrentDate();
   setGreeting();
+
+  const session = readSession();
+  if (!session) {
+    redirectToLanding();
+    return;
+  }
+  State.user = session.user;
+
   await populateStationDropdowns();
   setDefaultDate();
-  await loadPublicTrainTools();
-  document.getElementById('auth-container')?.addEventListener('click', (event) => {
-    if (event.target.id === 'auth-container') closeAuthModal();
-  });
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeAuthModal();
-  });
 
-  // Check if already logged in (session persist)
-  const savedUser = sessionStorage.getItem('railconnect_user');
-  if (savedUser) {
-    try {
-      const profile = await Service.getProfile();
-      State.user = { ...JSON.parse(savedUser), ...profile };
-      sessionStorage.setItem('railconnect_user', JSON.stringify(State.user));
-      await enterDashboard();
-    } catch (err) {
-      if (err.status === 401 || err.code === 'UNAUTHORIZED') {
-        sessionStorage.removeItem('railconnect_user');
-        State.user = null;
-        document.getElementById('public-home')?.classList.remove('hidden');
-        document.getElementById('dashboard-container')?.classList.add('hidden');
-      } else if (err.code === 'NETWORK_ERROR') {
-        State.user = null;
-        document.getElementById('public-home')?.classList.remove('hidden');
-        document.getElementById('dashboard-container')?.classList.add('hidden');
-        showToast(err.message, 'error');
-      } else {
-        sessionStorage.removeItem('railconnect_user');
-        State.user = null;
-        document.getElementById('public-home')?.classList.remove('hidden');
-        document.getElementById('dashboard-container')?.classList.add('hidden');
-      }
+  try {
+    const profile = await Service.getProfile();
+    State.user = { ...session.user, ...profile, token: session.token };
+    saveUser();
+    await enterDashboard();
+    await continuePendingSearch();
+  } catch (err) {
+    if (err.status === 401 || err.code === 'UNAUTHORIZED') {
+      clearSession();
+      redirectToLanding();
+      return;
     }
-  }
-
-  // Handle initial hash or default to home without scrolling
-  const hash = window.location.hash;
-  if (hash === '#journey-search') {
-    switchPublicView('book');
-  } else if (hash === '#train-tools') {
-    switchPublicView('trains');
-  } else if (hash === '#public-alerts') {
-    switchPublicView('alerts');
-  } else if (hash === '#public-support') {
-    switchPublicView('contact');
-  } else {
-    switchPublicView('home');
+    // Server problem (for example the backend is down): stay signed in and show the message
+    showToast(err.message || 'Could not load your account.', 'error');
+    await enterDashboard();
   }
 });
-
-// ════════════════════════════════════════════════════════════════ PUBLIC TAB NAVIGATION (NO SCROLL)
-window.switchPublicView = (view, clickedEl) => {
-  // Update nav active link
-  const navLinks = document.querySelectorAll('#public-nav-links a');
-  navLinks.forEach(link => link.classList.remove('current'));
-  if (clickedEl) {
-    clickedEl.classList.add('current');
-  } else {
-    // Match by view
-    const indexMap = { home: 0, book: 1, trains: 3, alerts: 4, contact: 5 };
-    if (navLinks[indexMap[view]]) navLinks[indexMap[view]].classList.add('current');
-  }
-
-  const hero = document.querySelector('.public-hero');
-  const searchWrap = document.getElementById('journey-search');
-  const travelInfo = document.getElementById('travel-info');
-  const trainTools = document.getElementById('train-tools');
-  const connectSearch = document.getElementById('connecting-search');
-  const publicAlerts = document.getElementById('public-alerts');
-  const publicSupport = document.getElementById('public-support');
-
-  // Helper to show/hide using high-priority CSS class
-  const setVisible = (el, show) => {
-    if (!el) return;
-    if (show) {
-      el.classList.remove('public-view-hidden');
-    } else {
-      el.classList.add('public-view-hidden');
-    }
-  };
-
-  switch (view) {
-    case 'home':
-      setVisible(hero, true);
-      setVisible(searchWrap, true);
-      setVisible(travelInfo, true);
-      setVisible(trainTools, false);
-      setVisible(connectSearch, false);
-      setVisible(publicAlerts, false);
-      setVisible(publicSupport, false);
-      if (searchWrap) searchWrap.classList.remove('public-view-direct');
-      break;
-
-    case 'book':
-      setVisible(hero, false);
-      setVisible(searchWrap, true);
-      setVisible(travelInfo, false);
-      setVisible(trainTools, false);
-      setVisible(connectSearch, false);
-      setVisible(publicAlerts, false);
-      setVisible(publicSupport, false);
-      if (searchWrap) searchWrap.classList.add('public-view-direct');
-      break;
-
-    case 'trains':
-      setVisible(hero, false);
-      setVisible(searchWrap, false);
-      setVisible(travelInfo, false);
-      setVisible(trainTools, true);
-      setVisible(connectSearch, true);
-      setVisible(publicAlerts, false);
-      setVisible(publicSupport, false);
-      if (trainTools) trainTools.classList.add('public-view-direct');
-      break;
-
-    case 'alerts':
-      setVisible(hero, false);
-      setVisible(searchWrap, false);
-      setVisible(travelInfo, false);
-      setVisible(trainTools, false);
-      setVisible(connectSearch, false);
-      setVisible(publicAlerts, true);
-      setVisible(publicSupport, false);
-      if (publicAlerts) publicAlerts.classList.add('public-view-direct');
-      break;
-
-    case 'contact':
-      setVisible(hero, false);
-      setVisible(searchWrap, false);
-      setVisible(travelInfo, false);
-      setVisible(trainTools, false);
-      setVisible(connectSearch, false);
-      setVisible(publicAlerts, false);
-      setVisible(publicSupport, true);
-      if (publicSupport) publicSupport.classList.add('public-view-direct');
-      break;
-  }
-
-  // Clear any URL hash so browser cannot scroll to id anchors
-  if (window.location.hash) {
-    history.replaceState(null, '', window.location.pathname);
-  }
-
-  // Ensure scroll is pinned at top without any movement
-  document.documentElement.scrollTop = 0;
-  document.body.scrollTop = 0;
-  window.scrollTo(0, 0);
-
-  const mobileNav = document.getElementById('public-nav-links');
-  if (mobileNav && mobileNav.classList.contains('open')) {
-    mobileNav.classList.remove('open');
-  }
-};
 
 function setCurrentDate() {
   const now = new Date();
@@ -216,7 +149,7 @@ function setDefaultDate() {
   const maxDay = String(maxD.getDate()).padStart(2, '0');
   const maxDate = `${maxY}-${maxM}-${maxDay}`;
 
-  ['qs-date', 'search-date', 'public-date', 'public-track-date', 'connect-date'].forEach(id => {
+  ['qs-date', 'search-date'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.value = today;
@@ -234,8 +167,8 @@ async function populateStationDropdowns() {
       `<option value="${s.stationId}">${s.stationCode} – ${s.stationName} (${s.city})</option>`
     ).join('');
 
-    const fromDropdownIds = ['qs-from', 'search-from', 'public-from', 'connect-from'];
-    const toDropdownIds = ['qs-to', 'search-to', 'public-to', 'connect-to'];
+    const fromDropdownIds = ['qs-from', 'search-from'];
+    const toDropdownIds = ['qs-to', 'search-to'];
 
     [...fromDropdownIds, ...toDropdownIds].forEach(id => {
       const el = document.getElementById(id);
@@ -263,255 +196,19 @@ async function populateStationDropdowns() {
   }
 }
 
-// ════════════════════════════════════════════════════════════════ AUTH
-
-window.switchAuthTab = (tab) => {
-  document.getElementById('tab-login').classList.toggle('active', tab === 'login');
-  document.getElementById('tab-register').classList.toggle('active', tab === 'register');
-  document.getElementById('login-form').classList.toggle('hidden', tab !== 'login');
-  document.getElementById('register-form').classList.toggle('hidden', tab !== 'register');
-};
-
-async function loadPublicTrainTools() {
-  try {
-    const trains = await Service.getAllTrains();
-    const options = trains
-      .map(train => `<option value="${train.trainId}">${train.trainNumber} · ${train.trainName}</option>`).join('');
-    ['public-schedule-train', 'public-track-train'].forEach(id => {
-      const select = document.getElementById(id);
-      if (select) select.innerHTML = options;
-    });
-    await renderPublicAlerts();
-  } catch (error) {
-    console.error('Could not load public train information', error);
-  }
-}
-
-window.lookupPublicSchedule = async (event) => {
-  event.preventDefault();
-  const container = document.getElementById('public-schedule-result');
-  container.innerHTML = '<p>Loading timetable…</p>';
-  try {
-    const train = await Service.getTrainSchedule(Number(document.getElementById('public-schedule-train').value));
-    if (!train?.route?.length) { container.innerHTML = '<p>No route timetable is available for this train.</p>'; return; }
-    container.innerHTML = `<div class="tool-result-head"><strong>${train.trainNumber} · ${train.trainName}</strong><span>${train.runningDays.join(' · ')}</span></div><div class="schedule-table-wrap"><table class="public-schedule-table"><thead><tr><th>Stop</th><th>Arrival</th><th>Departure</th><th>Platform</th><th>Distance</th></tr></thead><tbody>${train.route.map(stop => `<tr><td><strong>${stop.station?.stationName || 'Station'}</strong><small>${stop.station?.stationCode || ''}</small></td><td>${stop.arrivalTime}</td><td>${stop.departureTime}</td><td>${stop.platformNumber}</td><td>${stop.distanceFromOrigin} km</td></tr>`).join('')}</tbody></table></div>`;
-  } catch (error) { container.innerHTML = '<p>Could not load the timetable. Please try again.</p>'; }
-};
-
-window.trackPublicTrain = async (event) => {
-  event.preventDefault();
-  const container = document.getElementById('public-track-result');
-  const trainId = Number(document.getElementById('public-track-train').value);
-  const journeyDate = document.getElementById('public-track-date').value;
-  container.innerHTML = '<p>Checking the scheduled run…</p>';
-  try {
-    const run = await Service.getTrainRunStatus(trainId, journeyDate);
-    if (!run) { container.innerHTML = '<p>No dated schedule found for this train. Try a date with a sample schedule.</p>'; return; }
-    const statusLabel = run.schedule.status.replaceAll('_', ' ');
-    const lastKnown = run.currentStop?.station?.stationName || 'No current station in sample data';
-    container.innerHTML = `<div class="track-status-card"><span class="status-badge ${run.schedule.status}">${statusLabel}</span><strong>${run.schedule.delayMinutes ? `${run.schedule.delayMinutes} min delay` : 'No scheduled delay'}</strong><p>${run.trainNumber} · ${run.trainName}</p><div class="track-last-stop">Last scheduled stop: <b>${lastKnown}</b></div><small>Tracking is simulated from the dated mock schedule; live GPS position is not provided by the current API contract.</small></div>`;
-  } catch (error) { container.innerHTML = '<p>Could not load train status. Please try again.</p>'; }
-};
-
-window.lookupPublicPNR = async (event) => {
-  event.preventDefault();
-  const pnr = document.getElementById('public-pnr-input').value.trim();
-  const container = document.getElementById('public-pnr-result');
-  container.innerHTML = '<p>Looking up PNR…</p>';
-  try {
-    const booking = await Service.enquirePNR(pnr);
-    if (!booking) { container.innerHTML = `<p>No booking was found for PNR ${pnr}.</p>`; return; }
-    const trainDisplay = booking.trainName || (booking.trainNumber ? `Train ${booking.trainNumber}` : (booking.train?.trainName || 'N/A'));
-    const passengersHtml = Array.isArray(booking.passengers)
-      ? booking.passengers.map(p => {
-          const seatInfo = p.coachNumber ? ` · ${p.coachNumber}/${p.seatNumber} (${p.berthType})` : '';
-          const status = (p.status || p.passengerStatus || booking.bookingStatus || '').replace(/_/g, ' ');
-          return `<span>${p.name || p.passengerInfo?.name || 'Passenger'} · ${status}${seatInfo}</span>`;
-        }).join('')
-      : '';
-
-    container.innerHTML = `
-      <div class="public-pnr-card">
-        <div>
-          <small>PNR ${booking.pnr}</small>
-          <strong>${(booking.bookingStatus || '').replace(/_/g, ' ')}</strong>
-        </div>
-        <p>${booking.trainNumber ? `${booking.trainNumber} · ` : ''}${trainDisplay}</p>
-        <p>${booking.boardingStation?.stationCode || '—'} → ${booking.destinationStation?.stationCode || '—'} · ${formatDate(booking.journeyDate)}</p>
-        <div class="pnr-passenger-status">${passengersHtml}</div>
-      </div>
-    `;
-  } catch (error) {
-    if (error?.code === 'NOT_FOUND' || error?.status === 404) {
-      container.innerHTML = `<p>No booking was found for PNR ${pnr}.</p>`;
-    } else {
-      container.innerHTML = `<p>${error?.message || 'PNR lookup failed. Please try again.'}</p>`;
-    }
-  }
-};
-
-window.searchPublicConnections = async (event) => {
-  event.preventDefault();
-  const resultsEl = document.getElementById('public-connection-results');
-  resultsEl.innerHTML = '<p>Searching sample connections…</p>';
-  try {
-    const journeys = await Service.searchConnectingJourneys({
-      sourceStationId: Number(document.getElementById('connect-from').value),
-      destinationStationId: Number(document.getElementById('connect-to').value),
-      journeyDate: document.getElementById('connect-date').value
-    });
-    if (!journeys.length) { resultsEl.innerHTML = '<p>No two-leg connections were found in the sample schedules for that date.</p>'; return; }
-    resultsEl.innerHTML = journeys.map(journey => `<article class="connection-result"><div><small>LEG 1 · ${journey.firstTrain.trainNumber}</small><strong>${journey.firstTrain.trainName}</strong><span>${journey.firstTrain.fromStop.departureTime} → ${journey.firstTrain.transferStop.arrivalTime}</span></div><b class="connection-transfer">${journey.transferStation?.stationCode || 'Transfer'}<small>${Math.floor(journey.transferMinutes / 60)}h ${journey.transferMinutes % 60}m transfer</small></b><div><small>LEG 2 · ${journey.secondTrain.trainNumber}</small><strong>${journey.secondTrain.trainName}</strong><span>${journey.secondTrain.transferStop.departureTime} → ${journey.secondTrain.toStop.arrivalTime}</span></div></article>`).join('');
-  } catch (error) { resultsEl.innerHTML = '<p>Connection search failed. Please try again.</p>'; }
-};
-
-async function renderPublicAlerts() {
-  const container = document.getElementById('public-alert-list');
-  if (!container) return;
-  const alerts = await Service.getPublicAlerts();
-  if (!alerts.length) { container.innerHTML = '<p class="public-no-alerts">No operational notices are present in the sample schedules.</p>'; return; }
-  container.innerHTML = alerts.map(alert => `<article class="public-alert-card ${alert.status.toLowerCase()}"><span>${alert.status === 'CANCELLED' ? '!' : '◷'}</span><div><strong>${alert.train.trainNumber} · ${alert.train.trainName}</strong><p>${alert.status === 'DELAYED' ? `Delayed by ${alert.delayMinutes} minutes` : `Service ${alert.status.toLowerCase()}`} · ${formatDate(alert.journeyDate)}</p></div><b>${alert.status.replaceAll('_', ' ')}</b></article>`).join('');
-}
-
-window.openAuthModal = (tab = 'login') => {
-  document.getElementById('auth-container').classList.remove('hidden');
-  document.body.classList.add('auth-open');
-  switchAuthTab(tab);
-  requestAnimationFrame(() => document.getElementById(tab === 'register' ? 'reg-name' : 'login-email')?.focus());
-};
-
-window.closeAuthModal = () => {
-  document.getElementById('auth-container')?.classList.add('hidden');
-  document.body.classList.remove('auth-open');
-};
-
-window.swapPublicStations = () => {
-  const from = document.getElementById('public-from');
-  const to = document.getElementById('public-to');
-  [from.value, to.value] = [to.value, from.value];
-};
-
-window.handlePublicSearch = async (event) => {
-  event.preventDefault();
-  const sourceStationId = Number(document.getElementById('public-from').value);
-  const destinationStationId = Number(document.getElementById('public-to').value);
-  const journeyDate = document.getElementById('public-date').value;
-  const classType = document.getElementById('public-class').value;
-  const quota = document.getElementById('public-quota').value;
-  const resultsEl = document.getElementById('public-results');
-
-  if (sourceStationId === destinationStationId) {
-    showToast('Choose two different stations.', 'error');
-    return;
-  }
-
-  const button = event.submitter;
-  button.disabled = true;
-  button.classList.add('is-loading');
-  button.querySelector('b').textContent = '…';
-  resultsEl.innerHTML = '<div class="public-result-message">Finding available journeys…</div>';
-  try {
-    const trains = await Service.searchTrains({ sourceStationId, destinationStationId, journeyDate, classType, quota });
-    const source = State.stations.find(station => station.stationId === sourceStationId);
-    const destination = State.stations.find(station => station.stationId === destinationStationId);
-    if (!trains.length) {
-      resultsEl.innerHTML = '<div class="public-result-message">No scheduled trains were found for this route and date. Try another date or station pair.</div>';
-      return;
-    }
-    resultsEl.innerHTML = `<div class="public-result-heading"><div><span class="search-eyebrow">${trains.length} JOURNEY${trains.length === 1 ? '' : 'S'} FOUND</span><h2>${source?.stationCode} <span>→</span> ${destination?.stationCode}</h2></div><span>${formatDate(journeyDate)}</span></div>` + trains.map(train => {
-      const availability = train.availability.find(item => (!classType || item.classType === classType) && item.quota === quota);
-      const openSeats = availability?.availableSeats || 0;
-      return `<article class="public-train-result"><div class="public-train-symbol" aria-hidden="true">🚆</div><div class="public-train-details"><span>TRAIN ${train.trainNumber} · ${train.trainType.replaceAll('_', ' ')}</span><h3>${train.trainName}</h3></div><div class="public-availability"><strong>${openSeats > 0 ? `${openSeats} available` : 'Check availability'}</strong><small>${availability?.classType || 'Multiple classes'} · ${quota.replaceAll('_', ' ')}</small></div><button type="button" class="public-book-cta" onclick="openAuthModal('login')">Sign in to book <b>→</b></button></article>`;
-    }).join('');
-  } catch (error) {
-    console.error('Public train search failed:', error);
-    resultsEl.innerHTML = '<div class="public-result-message">Train search is unavailable right now. Please try again.</div>';
-  } finally {
-    button.disabled = false;
-    button.classList.remove('is-loading');
-    button.querySelector('b').textContent = '→';
-  }
-};
-
-window.handleLogin = async (e) => {
-  e.preventDefault();
-  const email = document.getElementById('login-email').value.trim();
-  const password = document.getElementById('login-password').value;
-
-  const btn = document.getElementById('login-btn');
-  btn.querySelector('.btn-text').classList.add('hidden');
-  btn.querySelector('.btn-spinner').classList.remove('hidden');
-
-  try {
-    const user = await Service.loginPassenger(email, password);
-    State.user = user;
-    sessionStorage.setItem('railconnect_user', JSON.stringify(user));
-    await enterDashboard();
-    showToast('Welcome back, ' + user.name.split(' ')[0] + '! 🎉', 'success');
-  } catch (err) {
-    const msg =
-      err?.code === 'UNAUTHORIZED' ? 'Invalid email or password. Please try again.' :
-      err?.code === 'FORBIDDEN' ? 'Your account is suspended. Contact support.' :
-      (err?.code === 'CONFLICT' || err?.code === 'VALIDATION_ERROR' || err?.code === 'NETWORK_ERROR') ? err.message :
-      'Invalid email or password. Please try again.';
-    showToast(msg, 'error');
-  } finally {
-    btn.querySelector('.btn-text').classList.remove('hidden');
-    btn.querySelector('.btn-spinner').classList.add('hidden');
-  }
-};
-
-window.handleRegister = async (e) => {
-  e.preventDefault();
-  const btn = document.getElementById('register-btn');
-  btn.querySelector('.btn-text').classList.add('hidden');
-  btn.querySelector('.btn-spinner').classList.remove('hidden');
-
-  try {
-    const user = await Service.registerPassenger({
-      name: document.getElementById('reg-name').value.trim(),
-      email: document.getElementById('reg-email').value.trim(),
-      phone: document.getElementById('reg-phone').value.trim(),
-      password: document.getElementById('reg-password').value
-    });
-    State.user = user;
-    sessionStorage.setItem('railconnect_user', JSON.stringify(user));
-    await enterDashboard();
-    showToast('Account created successfully! Welcome 🚆', 'success');
-  } catch (err) {
-    const msg =
-      err?.code === 'UNAUTHORIZED' ? 'Invalid email or password. Please try again.' :
-      err?.code === 'FORBIDDEN' ? 'Your account is suspended. Contact support.' :
-      (err?.code === 'CONFLICT' || err?.code === 'VALIDATION_ERROR' || err?.code === 'NETWORK_ERROR') ? err.message :
-      'Registration failed.';
-    showToast(msg, 'error');
-  } finally {
-    btn.querySelector('.btn-text').classList.remove('hidden');
-    btn.querySelector('.btn-spinner').classList.add('hidden');
-  }
-};
-
+// ════════════════════════════════════════════════════════════════ SIGN OUT
+// Sign out removes the one shared session and returns to the landing page.
 window.handleLogout = () => {
-  sessionStorage.removeItem('railconnect_user');
+  clearSession();
+  sessionStorage.removeItem('rrms_pending_search');
   State.user = null;
-  document.getElementById('public-home').classList.remove('hidden');
-  closeAuthModal();
-  document.getElementById('dashboard-container').classList.add('hidden');
-  showToast('Signed out successfully', 'success');
+  window.location.replace('/');
 };
 
-window.togglePassword = (id) => {
-  const input = document.getElementById(id);
-  input.type = input.type === 'password' ? 'text' : 'password';
-};
 
 // ════════════════════════════════════════════════════════════════ ENTER DASHBOARD
 
 async function enterDashboard() {
-  document.getElementById('public-home').classList.add('hidden');
-  document.getElementById('auth-container').classList.add('hidden');
-  document.getElementById('auth-container').classList.remove('active');
-  closeAuthModal();
   document.getElementById('dashboard-container').classList.remove('hidden');
 
   const { user } = State;
@@ -593,7 +290,10 @@ window.navigateTo = (page) => {
     case 'passengers': renderPassengersPage(); break;
     case 'tdr': renderTDRPage(); break;
     case 'grievances': renderGrievancesPage(); break;
-    case 'alerts': renderAlertsPage(); break;
+    case 'alerts':
+      renderAlertsPage();
+      refreshNotifications().then(() => renderAlertsPage());
+      break;
     case 'search': resetBookingFlow(); break;
   }
 
@@ -602,6 +302,17 @@ window.navigateTo = (page) => {
     closeSidebar();
   }
 };
+
+// Reload own notifications from the server (new ones are created by bookings, payments, cancellations and TDR decisions)
+async function refreshNotifications() {
+  try {
+    State.notifications = await Service.getUserNotifications();
+    renderHomeAlerts();
+    updateNotifBadge();
+  } catch (err) {
+    console.error('Failed to refresh notifications:', err);
+  }
+}
 
 window.toggleSidebar = () => {
   const sidebar = document.getElementById('sidebar');
@@ -692,11 +403,11 @@ function renderHomeAlerts() {
   }
 
   container.innerHTML = userNotifs.map(n => `
-    <div class="alert-item ${n.type} ${n.isRead ? '' : 'unread'}">
+    <div class="alert-item ${escapeHtml(n.type)} ${n.isRead ? '' : 'unread'}">
       <div class="alert-icon">${getAlertIcon(n.type)}</div>
       <div class="alert-content">
-        <div class="alert-title">${n.title}</div>
-        <div class="alert-msg">${n.message}</div>
+        <div class="alert-title">${escapeHtml(n.title)}</div>
+        <div class="alert-msg">${escapeHtml(n.message)}</div>
         <div class="alert-time">${timeAgo(n.createdAt)}</div>
       </div>
       ${!n.isRead ? '<div class="unread-dot"></div>' : ''}
@@ -746,6 +457,16 @@ window.goToSearch = () => {
 // ════════════════════════════════════════════════════════════════ BOOKING FLOW
 
 function resetBookingFlow() {
+  // Stop the old hold countdown and clear anything left over from the previous attempt
+  if (State.bookingFlow && State.bookingFlow.holdTimerInterval) {
+    clearInterval(State.bookingFlow.holdTimerInterval);
+  }
+  ['hold-timer', 'hold-timer-4', 'hold-timer-5'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+  const payBtn = document.getElementById('pay-now-btn');
+  if (payBtn) payBtn.disabled = false;
+  const finalNotice = document.getElementById('payment-final-notice');
+  if (finalNotice) finalNotice.innerHTML = '';
+
   State.bookingFlow = {
     step: 1, searchParams: {}, searchResults: [], selectedTrain: null,
     selectedClass: null, selectedPassengers: [], holdToken: null, holdExpiry: null,
@@ -753,6 +474,21 @@ function resetBookingFlow() {
   };
   goToStep(1);
 }
+
+/**
+ * "Start over": forget the whole booking attempt and go back to search.
+ * The seats of the old hold are released by the server when the hold expires (10 minutes after it was made).
+ */
+window.startOverBooking = () => {
+  const oldPnr = State.bookingFlow.pnr;
+  navigateTo('search'); // resets State.bookingFlow and returns to step 1
+  showToast(
+    oldPnr
+      ? `Booking cleared. The seats held for PNR ${oldPnr} will be released automatically when that 10-minute hold expires.`
+      : 'Booking cleared. You can search again.',
+    'info'
+  );
+};
 
 window.goToStep = (stepNum) => {
   // Hide all steps
@@ -781,6 +517,10 @@ window.goToStep = (stepNum) => {
 
   if (stepNum === 3) { initPassengerStep(); }
   if (stepNum === 4) { initSummaryStep(); }
+  if (stepNum === 5) {
+    const lbl = document.getElementById('pay-pnr-label');
+    if (lbl) lbl.textContent = State.bookingFlow.pnr || '';
+  }
 };
 
 window.swapSearchStations = () => {
@@ -841,6 +581,24 @@ window.handleSearchTrains = async (e) => {
   }
 };
 
+/**
+ * What a class offers right now, from the numbers the server sends:
+ * AVAILABLE (seats free), RAC (no seats, RAC slots open), WL (no seats, waiting list open), WL_FULL (waiting list full).
+ * If the server does not send capacities, the old rule is used (RAC if some are in RAC, otherwise WL).
+ */
+function classWaitKind(a) {
+  const seats = Number(a.availableSeats) || 0;
+  if (seats > 0) return 'AVAILABLE';
+  const racCount = Number(a.racCount) || 0;
+  const wlCount = Number(a.waitingListCount) || 0;
+  const hasRacCap = a.racCapacity !== undefined && a.racCapacity !== null;
+  const hasWlCap = a.waitingListCapacity !== undefined && a.waitingListCapacity !== null;
+  const racOpen = hasRacCap ? racCount < Number(a.racCapacity) : racCount > 0;
+  if (racOpen) return 'RAC';
+  if (a.waitingListFull === true || (hasWlCap && wlCount >= Number(a.waitingListCapacity))) return 'WL_FULL';
+  return 'WL';
+}
+
 function renderSearchResults(results) {
   const { fromId, toId, date, quota } = State.bookingFlow.searchParams;
   const fromStation = State.stations.find(s => s.stationId === fromId);
@@ -866,20 +624,25 @@ function renderSearchResults(results) {
     const days = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
 
     const classChips = avail.map(a => {
-      const available = a.availableSeats > 0;
-      const racOnly = a.availableSeats === 0 && a.racCount > 0;
-      const waitlist = a.availableSeats === 0 && a.racCount === 0;
-      let availClass = 'green', availText = `${a.availableSeats} AVL`;
-      if (racOnly) { availClass = 'amber'; availText = `RAC ${a.racCount}`; }
-      if (waitlist) { availClass = 'orange'; availText = `WL ${a.waitingListCount}`; }
+      const kind = classWaitKind(a);
+      const available = kind === 'AVAILABLE';
+      const racOnly = kind === 'RAC';
+      const waitlist = kind === 'WL';
+      const wlFull = kind === 'WL_FULL';
+      let availClass = 'green', availText = `${a.availableSeats} AVL`, badgeClass = '';
+      if (racOnly) { availClass = 'amber'; availText = `RAC ${a.racCount}`; badgeClass = ' badge'; }
+      if (waitlist) { availClass = 'orange'; availText = `WL ${a.waitingListCount}`; badgeClass = ' badge'; }
+      if (wlFull) { availClass = 'red'; availText = 'Waiting list full'; badgeClass = ' badge'; }
 
       const fareAmount = a.estimatedTotalFare != null ? a.estimatedTotalFare : (a.baseFare != null ? a.baseFare : 0);
+      const chipClasses = ['class-chip'];
+      if (racOnly || waitlist) chipClasses.push('waitlist');
+      if (wlFull) chipClasses.push('wl-full');
 
       return `
-        <div class="class-chip ${!available && !racOnly ? 'unavailable' : ''}"
-             onclick="selectClassForTrain(${train.trainId}, '${a.classType}', this)">
+        <div class="${chipClasses.join(' ')}" ${wlFull ? 'aria-disabled="true" title="Waiting list full"' : `onclick="selectClassForTrain(${train.trainId}, '${a.classType}', this)"`}>
           <div class="class-type">${a.classType}</div>
-          <div class="class-avail ${availClass}">${availText}</div>
+          <div class="class-avail ${availClass}${badgeClass}">${availText}</div>
           <div class="class-fare">from ${formatMoney(fareAmount)}</div>
         </div>
       `;
@@ -922,6 +685,7 @@ function renderSearchResults(results) {
 
         <div class="classes-row">${classChips || '<span style="color:var(--clr-text-3);font-size:13px;">No availability data</span>'}</div>
         <div class="fallback-notice-msg" style="display:none; font-size:12px; color:var(--clr-accent-2); margin-top:8px; padding:6px 10px; background:rgba(255,184,0,0.1); border-radius:4px;"></div>
+        <div class="class-wait-note"></div>
 
         <div class="train-card-footer">
           <div class="running-days">${dayBadges}</div>
@@ -965,6 +729,31 @@ window.selectClassForTrain = async (trainId, classType, el) => {
         availEl.textContent = availText;
       }
 
+      // Short note when this class would put the passenger on RAC or the waiting list
+      const waitNoteEl = card?.querySelector('.class-wait-note');
+      if (waitNoteEl) {
+        let waitKind = null;
+        if (availReply.fallbackOffered) {
+          const projected = availReply.generalQuotaStatus?.projectedStatus;
+          if (projected === 'RAC') waitKind = 'RAC';
+          else if (projected === 'WAITING_LIST') waitKind = 'waiting list';
+        } else {
+          // Use the fresh seat numbers with the capacities from the search result for this class
+          const searched = (State.bookingFlow.searchResults.find(t => t.trainId === trainId)
+            ?.availability || []).find(x => x.classType === classType) || {};
+          const kind = classWaitKind({ ...searched, availableSeats: seats, racCount: rac, waitingListCount: wl });
+          if (kind === 'RAC') waitKind = 'RAC';
+          else if (kind === 'WL' || kind === 'WL_FULL') waitKind = 'waiting list';
+        }
+        if (waitKind) {
+          waitNoteEl.textContent = `You will be on the ${waitKind}; your seat is confirmed only if others cancel.`;
+          waitNoteEl.style.display = 'block';
+        } else {
+          waitNoteEl.textContent = '';
+          waitNoteEl.style.display = 'none';
+        }
+      }
+
       if (availReply.fallbackOffered && availReply.fallbackNotice) {
         showToast(availReply.fallbackNotice, 'info');
         const noticeEl = card?.querySelector('.fallback-notice-msg');
@@ -994,6 +783,11 @@ window.proceedWithTrain = async (trainId) => {
     State.bookingFlow.selectedClass = train.availability[0].classType;
   }
 
+  // Picking a train again abandons any earlier hold; say so (the server releases it when it expires)
+  if (State.bookingFlow.pnr) {
+    showToast(`Your earlier seat hold (PNR ${State.bookingFlow.pnr}) will be released automatically when its 10-minute timer ends.`, 'info');
+  }
+
   // Clear any existing hold token or timer from previous attempts
   if (State.bookingFlow.holdTimerInterval) {
     clearInterval(State.bookingFlow.holdTimerInterval);
@@ -1007,208 +801,65 @@ window.proceedWithTrain = async (trainId) => {
   goToStep(3);
 };
 
-// Step 3 - Passenger Details
+// Step 3 - Who is travelling? The passenger step itself lives in passenger-step.js
 function initPassengerStep() {
-  const container = document.getElementById('saved-pax-list');
-  if (container) {
-    if (!State.savedPassengers || State.savedPassengers.length === 0) {
-      container.innerHTML = '<div style="color:var(--clr-text-3);font-size:13px;padding:8px 0;">No saved passengers found. Use the "+ Add New" button above to add passengers for this trip.</div>';
-    } else {
-      container.innerHTML = State.savedPassengers.map(p => {
-        const isChecked = State.bookingFlow.selectedPassengers.some(sp => sp.passengerId === p.passengerId || (sp.name === p.name && sp.age === p.age));
-        return `
-          <label class="saved-pax-item">
-            <input type="checkbox" class="pax-checkbox" value="${p.passengerId}" ${isChecked ? 'checked' : ''} onchange="togglePassengerSelection(${p.passengerId}, this.checked)" />
-            <div class="pax-avatar-sm">${getInitials(p.name)}</div>
-            <div class="pax-name-info">
-              <div class="pax-name-sm">${p.name}</div>
-              <div class="pax-details-sm">${p.age} yrs | ${p.gender} | ${p.berthPreference || 'NO_BERTH'} | ${p.concessionType !== 'NONE' ? p.concessionType : 'No concession'}</div>
-            </div>
-          </label>
-        `;
-      }).join('');
+  // Once seats are on hold (PNR exists) the passenger list is read-only. The only way to
+  // change passengers is "Start over". A hold is never silently reused with different passengers.
+  const holdLocked = !!State.bookingFlow.pnr;
+  const stepEl = document.getElementById('booking-step-3');
+  if (stepEl) stepEl.classList.toggle('hold-locked', holdLocked);
+  document.getElementById('hold-lock-notice')?.classList.toggle('hidden', !holdLocked);
+  document.querySelectorAll('#booking-step-3 .preferences-grid input').forEach(i => { i.disabled = holdLocked; });
+  if (holdLocked) {
+    const lockText = document.getElementById('hold-lock-text');
+    if (lockText) {
+      lockText.textContent = `Your seats are on hold for PNR ${State.bookingFlow.pnr}, so travellers and preferences can no longer be changed. ` +
+        'To change them, press "Start over". The old hold is released automatically when its 10-minute timer ends.';
     }
   }
 
-  // Toggle ladies fallback consent visibility if LADIES quota selected
+  // Ladies quota: show the fallback consent
   const fallbackContainer = document.getElementById('fallback-consent-container');
   if (fallbackContainer) {
-    const isLadies = (State.bookingFlow.searchParams?.quota === 'LADIES');
-    fallbackContainer.style.display = isLadies ? 'flex' : 'none';
+    fallbackContainer.style.display = (State.bookingFlow.searchParams?.quota === 'LADIES') ? 'flex' : 'none';
   }
 
   renderSelectedJourneyInfo();
+  passengerStep.init();
 }
 
-window.togglePassengerSelection = (passengerId, checked) => {
-  if (checked) {
-    const maxPax = State.bookingFlow.searchParams?.quota === 'TATKAL' ? 4 : 6;
-    if (State.bookingFlow.selectedPassengers.length >= maxPax) {
-      showToast(`Maximum ${maxPax} passengers allowed per booking`, 'warning');
-      const chk = document.querySelector(`input.pax-checkbox[value="${passengerId}"]`);
-      if (chk) chk.checked = false;
-      return;
-    }
-    const pax = State.savedPassengers.find(p => p.passengerId === passengerId);
-    if (pax && !State.bookingFlow.selectedPassengers.find(p => p.passengerId === passengerId)) {
-      State.bookingFlow.selectedPassengers.push({
-        passengerId: pax.passengerId,
-        name: pax.name,
-        age: Number(pax.age),
-        gender: pax.gender,
-        berthPreference: pax.berthPreference || 'NO_BERTH',
-        idProofType: pax.idProofType || 'AADHAAR',
-        idProofReference: pax.idProofReference || 'XXXX-XXXX-0000',
-        concessionType: pax.concessionType || 'NONE',
-        disabilityType: pax.disabilityType || 'NONE'
-      });
-      // Invalidate existing hold on passenger change so fresh hold is acquired for summary
-      State.bookingFlow.pnr = null;
-    }
-  } else {
-    State.bookingFlow.selectedPassengers = State.bookingFlow.selectedPassengers.filter(p => p.passengerId !== passengerId);
-    State.bookingFlow.pnr = null;
+window.proceedToSummary = () => {
+  if (!passengerStep.canProceed()) {
+    const first = passengerStep.problems()[0];
+    showToast(first || 'Add at least one traveller first.', 'warning');
+    return;
   }
+  goToStep(4);
 };
 
-window.addPassengerRow = () => {
-  const maxPax = State.bookingFlow.searchParams?.quota === 'TATKAL' ? 4 : 6;
-  if (State.bookingFlow.selectedPassengers.length >= maxPax) {
-    showToast(`Maximum ${maxPax} passengers allowed per booking (${State.bookingFlow.searchParams?.quota || 'GENERAL'} quota)`, 'warning');
-    return;
-  }
-
-  const container = document.getElementById('new-pax-forms');
-  const formId = `new-pax-${Date.now()}`;
-  container.insertAdjacentHTML('beforeend', `
-    <div class="saved-pax-item" id="${formId}" style="flex-direction:column;align-items:stretch;gap:12px;cursor:default;margin-bottom:12px;">
-      <div class="form-grid" style="margin:0;gap:12px;">
-        <div class="form-group">
-          <label class="form-label">Full Name *</label>
-          <input type="text" class="form-input" id="${formId}-name" placeholder="As shown on ID proof" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Age *</label>
-          <input type="number" class="form-input" id="${formId}-age" min="1" max="120" placeholder="Years" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Gender *</label>
-          <select class="form-select" id="${formId}-gender">
-            <option value="MALE">Male</option>
-            <option value="FEMALE">Female</option>
-            <option value="OTHER">Other</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Berth Preference</label>
-          <select class="form-select" id="${formId}-berth">
-            <option value="NO_BERTH">No Preference</option>
-            <option value="LOWER">Lower</option>
-            <option value="MIDDLE">Middle</option>
-            <option value="UPPER">Upper</option>
-            <option value="SIDE_LOWER">Side Lower</option>
-            <option value="SIDE_UPPER">Side Upper</option>
-            <option value="WINDOW">Window</option>
-            <option value="AISLE">Aisle</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">ID Proof Type *</label>
-          <select class="form-select" id="${formId}-id-type">
-            <option value="AADHAAR">Aadhaar Card</option>
-            <option value="PAN">PAN Card</option>
-            <option value="PASSPORT">Passport</option>
-            <option value="DRIVING_LICENSE">Driving License</option>
-            <option value="VOTER_ID">Voter ID</option>
-            <option value="GOVT_ID">Government ID</option>
-            <option value="SYNTHETIC_TEST_ID">Synthetic Test ID</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">ID Reference / Number *</label>
-          <input type="text" class="form-input" id="${formId}-id-ref" placeholder="ID document number" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Concession Category</label>
-          <select class="form-select" id="${formId}-concession">
-            <option value="NONE">None</option>
-            <option value="SENIOR_CITIZEN">Senior Citizen</option>
-            <option value="STUDENT">Student</option>
-            <option value="DIVYAANG">Divyaang</option>
-            <option value="DEFENCE">Defence</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Disability Type (if Divyaang)</label>
-          <select class="form-select" id="${formId}-disability">
-            <option value="NONE">None</option>
-            <option value="ORTHOPEDIC">Orthopedic</option>
-            <option value="VISUAL">Visual</option>
-            <option value="HEARING">Hearing</option>
-          </select>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;">
-        <button type="button" class="btn-danger" onclick="document.getElementById('${formId}').remove()" style="padding:6px 12px;font-size:12px;">Remove</button>
-        <button type="button" class="btn-primary" onclick="addNewPaxToSelection('${formId}')" style="padding:6px 14px;font-size:12px;">Add Passenger →</button>
-      </div>
-    </div>
-  `);
-};
-
-window.addNewPaxToSelection = (formId) => {
-  const name = document.getElementById(`${formId}-name`)?.value?.trim();
-  const age = parseInt(document.getElementById(`${formId}-age`)?.value, 10);
-  const idRef = document.getElementById(`${formId}-id-ref`)?.value?.trim();
-
-  if (!name || name.length < 2) {
-    showToast('Please enter a valid passenger name (at least 2 characters)', 'warning');
-    return;
-  }
-  if (!age || isNaN(age) || age < 1 || age > 120) {
-    showToast('Please enter a valid passenger age between 1 and 120', 'warning');
-    return;
-  }
-  if (!idRef) {
-    showToast('Please enter an ID proof reference number', 'warning');
-    return;
-  }
-
-  const gender = document.getElementById(`${formId}-gender`)?.value || 'MALE';
-  const berthPreference = document.getElementById(`${formId}-berth`)?.value || 'NO_BERTH';
-  const idProofType = document.getElementById(`${formId}-id-type`)?.value || 'AADHAAR';
-  const concessionType = document.getElementById(`${formId}-concession`)?.value || 'NONE';
-  const disabilityType = document.getElementById(`${formId}-disability`)?.value || 'NONE';
-
-  if (concessionType === 'DIVYAANG' && disabilityType === 'NONE') {
-    showToast('Please select a specific disability type for Divyaang concession', 'warning');
-    return;
-  }
-
-  const maxPax = State.bookingFlow.searchParams?.quota === 'TATKAL' ? 4 : 6;
-  if (State.bookingFlow.selectedPassengers.length >= maxPax) {
-    showToast(`Maximum ${maxPax} passengers allowed per booking`, 'warning');
-    return;
-  }
-
-  State.bookingFlow.selectedPassengers.push({
-    passengerId: null,
-    name,
-    age,
-    gender,
-    berthPreference,
-    idProofType,
-    idProofReference: idRef,
-    concessionType,
-    disabilityType
-  });
-
-  // Invalidate existing hold on passenger changes so fresh hold is acquired for summary
-  State.bookingFlow.pnr = null;
-
-  document.getElementById(formId)?.remove();
-  showToast(`${name} added to booking list (${State.bookingFlow.selectedPassengers.length}/${maxPax})`, 'success');
-};
+/**
+ * The booking API refuses with a short code. These are the same refusals in plain words for the passenger.
+ * Messages the server already writes in plain words (VALIDATION_ERROR) are shown as they are.
+ */
+function plainBookingError(err) {
+  const map = {
+    SEAT_NOT_AVAILABLE: 'There are no seats left in this quota for the whole group. Try another class, quota or date.',
+    WAITING_LIST_FULL: 'The waiting list for this class is full. Try another class or date.',
+    NOT_ALL_CONFIRMED: 'Not every traveller would get a confirmed seat, and you asked for confirmed seats only.',
+    QUOTA_NOT_ELIGIBLE: 'One or more travellers do not meet the rules of the quota you chose. Check the rules at the top of this step.',
+    CONCESSION_PROOF_REQUIRED: 'A concession needs an ID proof type and number for that traveller.',
+    NO_ADULT_PASSENGER: 'Every PNR needs at least one traveller aged 18 or more.',
+    MONTHLY_LIMIT_EXCEEDED: 'You have reached the monthly limit of tickets for your account.',
+    CHART_PREPARED: 'The chart for this train is already prepared, so new bookings are closed.',
+    JOURNEY_PAST: 'This train has already left the boarding station.',
+    OUTSIDE_BOOKING_WINDOW: 'This date is too far ahead. Tickets open only a few days before the journey.',
+    TRAIN_NOT_RUNNING: 'This train does not run on that date.',
+    INVALID_STOPS: 'The boarding and destination stations are not valid for this train.',
+    BERTH_PREFERENCE_NOT_MET: 'A traveller could not get the berth they asked for, and you chose "book only if the berth is given". Untick "Berth Condition" or change the berth choice.',
+    HOLD_EXPIRED: 'The 10-minute hold ran out before payment.'
+  };
+  return map[err?.code] || err?.message || 'The booking could not be made. Please try again.';
+}
 
 function renderSelectedJourneyInfo() {
   const { selectedTrain, selectedClass, searchParams } = State.bookingFlow;
@@ -1258,7 +909,7 @@ function startHoldTimer(initialSeconds) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     const text = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    ['hold-countdown', 'hold-countdown-4'].forEach(id => {
+    ['hold-countdown', 'hold-countdown-4', 'hold-countdown-5'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.textContent = text;
     });
@@ -1266,6 +917,8 @@ function startHoldTimer(initialSeconds) {
     if (timerBox) timerBox.classList.remove('hidden');
     const timerBox4 = document.getElementById('hold-timer-4');
     if (timerBox4) timerBox4.classList.remove('hidden');
+    const timerBox5 = document.getElementById('hold-timer-5');
+    if (timerBox5) timerBox5.classList.remove('hidden');
   };
 
   renderTimerText(remaining);
@@ -1301,16 +954,10 @@ async function initSummaryStep() {
     return;
   }
 
-  const maxPax = searchParams.quota === 'TATKAL' ? 4 : 6;
-  if (selectedPassengers.length > maxPax) {
-    showToast(`Maximum ${maxPax} passengers allowed per booking (${searchParams.quota || 'GENERAL'} quota)`, 'error');
-    goToStep(3);
-    return;
-  }
-
-  const hasAdult = selectedPassengers.some(p => Number(p.age) >= 18);
-  if (!hasAdult) {
-    showToast('At least one adult passenger (18 years or older) is required per booking', 'error');
+  // The same checks the API makes (limits, adult, concession proof, quota eligibility), in plain words
+  const problems = State.bookingFlow.pnr ? [] : passengerStep.problems();
+  if (problems.length) {
+    showToast(problems[0], 'error');
     goToStep(3);
     return;
   }
@@ -1337,29 +984,7 @@ async function initSummaryStep() {
     </div>
   `;
 
-  const paxRows = selectedPassengers.map(p => `
-    <tr style="border-bottom:1px solid var(--clr-border);">
-      <td style="padding:10px 0;font-weight:600;">${p.name}</td>
-      <td style="padding:10px;color:var(--clr-text-2);">${p.age} / ${p.gender}</td>
-      <td style="padding:10px;color:var(--clr-text-2);">${p.berthPreference || 'NO_BERTH'}</td>
-      <td style="padding:10px;color:var(--clr-accent);">${p.concessionType !== 'NONE' ? p.concessionType : '—'}</td>
-    </tr>
-  `).join('');
-
-  document.getElementById('summary-passengers-card').innerHTML = `
-    <div class="card-header"><h3>Passengers (${selectedPassengers.length})</h3></div>
-    <table style="width:100%;border-collapse:collapse;">
-      <thead>
-        <tr style="border-bottom:2px solid var(--clr-border);">
-          <th style="padding:8px 0;text-align:left;font-size:12px;color:var(--clr-text-3);">NAME</th>
-          <th style="padding:8px;text-align:left;font-size:12px;color:var(--clr-text-3);">AGE / GENDER</th>
-          <th style="padding:8px;text-align:left;font-size:12px;color:var(--clr-text-3);">BERTH</th>
-          <th style="padding:8px;text-align:left;font-size:12px;color:var(--clr-text-3);">CONCESSION</th>
-        </tr>
-      </thead>
-      <tbody>${paxRows}</tbody>
-    </table>
-  `;
+  renderSummaryPassengers();
 
   // If a booking hold has not yet been initiated for this passenger set, call real createBooking to hold seats
   if (!State.bookingFlow.pnr) {
@@ -1367,10 +992,6 @@ async function initSummaryStep() {
     try {
       const fallbackConsent = document.getElementById('pref-fallback-consent')?.checked || false;
       const berthCondition = document.getElementById('pref-berth-condition')?.checked || false;
-      const autoUpgrade = document.getElementById('pref-auto-upgrade')?.checked || false;
-      const bookOnlyIfConfirmed = document.getElementById('pref-confirmed-only')?.checked || false;
-      const preferredCoach = document.getElementById('pref-coach')?.value?.trim() || null;
-      const travelInsurance = document.getElementById('pref-insurance')?.checked || false;
 
       const bookingPayload = {
         trainId: selectedTrain.trainId,
@@ -1381,22 +1002,30 @@ async function initSummaryStep() {
         quota: searchParams.quota || 'GENERAL',
         requestedQuota: searchParams.quota || 'GENERAL',
         continueWithGeneralQuota: fallbackConsent,
-        passengers: selectedPassengers.map(p => ({
-          name: p.name,
-          age: Number(p.age),
-          gender: p.gender,
-          berthPreference: p.berthPreference || 'NO_BERTH',
-          idProofType: p.idProofType || 'AADHAAR',
-          idProofReference: p.idProofReference || 'XXXX-XXXX-0000',
-          concessionType: p.concessionType || 'NONE',
-          disabilityType: p.disabilityType || 'NONE'
-        })),
+        passengers: selectedPassengers.map(p => {
+          const passenger = {
+            name: p.name,
+            age: Number(p.age),
+            gender: p.gender,
+            berthPreference: p.berthPreference || 'NO_BERTH',
+            concessionType: p.concessionType || 'NONE',
+            disabilityType: p.disabilityType || 'NONE'
+          };
+          // Saved passenger: send its id (the server checks it belongs to this user)
+          if (p.passengerId) passenger.savedPassengerId = p.passengerId;
+          // ID proof only when the passenger really has a concession or the user filled the proof in.
+          // No placeholder values are sent.
+          const hasConcession = passenger.concessionType !== 'NONE';
+          const proofFilled = Boolean(p.idProofType && p.idProofReference);
+          if (hasConcession || proofFilled) {
+            if (p.idProofType) passenger.idProofType = p.idProofType;
+            if (p.idProofReference) passenger.idProofReference = p.idProofReference;
+          }
+          return passenger;
+        }),
+        // Only the berth condition is used by the server. Insurance is always included in the fare.
         preferences: {
-          autoUpgrade,
-          bookOnlyIfConfirmed,
-          berthCondition,
-          preferredCoach,
-          travelInsurance
+          berthCondition
         }
       };
 
@@ -1407,13 +1036,19 @@ async function initSummaryStep() {
       State.bookingFlow.totalFare = Number(bookingRes.totalFare);
       State.bookingFlow.fareBreakdown = bookingRes.fareBreakdown || [];
       State.bookingFlow.secondsRemaining = Number(bookingRes.secondsRemaining) || 600;
+      try {
+        const held = await Service.enquirePNR(bookingRes.pnr);
+        State.bookingFlow.passengerStatuses = held?.passengers || [];
+      } catch (_) {
+        State.bookingFlow.passengerStatuses = [];
+      }
 
       startHoldTimer(State.bookingFlow.secondsRemaining);
       showToast(`Seats reserved on hold! PNR: ${bookingRes.pnr}`, 'info');
     } catch (err) {
       console.error('Failed to reserve seats on hold:', err);
       hideLoading();
-      showToast(err?.message || 'Failed to reserve seats. Please retry.', 'error');
+      showToast(plainBookingError(err), 'error');
       goToStep(3);
       return;
     } finally {
@@ -1421,8 +1056,46 @@ async function initSummaryStep() {
     }
   }
 
-  // Render server-authoritative fare breakdown
+  // Render server-authoritative fare breakdown and the per-traveller lines
+  renderSummaryPassengers();
   renderServerFareBreakdown();
+}
+
+/**
+ * Summary: every traveller by name with their own fare lines and the status they get. The fare lines and statuses
+ * are the server's (the booking reply and the PNR), never worked out here. Before the seats are held there are none yet.
+ */
+function renderSummaryPassengers() {
+  const { selectedPassengers, fareBreakdown, passengerStatuses } = State.bookingFlow;
+  const lines = Array.isArray(fareBreakdown) ? fareBreakdown : [];
+  const known = lines.length > 0;
+  const rows = selectedPassengers.map((p, i) => {
+    const f = lines.find(l => Number(l.passengerNo) === i + 1);
+    const st = (passengerStatuses || []).find(s => Number(s.passengerNo) === i + 1);
+    const status = st ? `${String(st.status).replace(/_/g, ' ')}${st.queuePosition ? ' (' + escapeHtml(st.queuePosition) + ')' : ''}` : (known ? '—' : 'Decided when seats are held');
+    const money = (v) => (f ? formatMoney(v) : '—');
+    return `
+      <tr>
+        <td><strong>${escapeHtml(p.name)}</strong><br><small>${escapeHtml(p.age)} yrs, ${escapeHtml(String(p.gender).toLowerCase())} · ${escapeHtml(p.berthPreference && p.berthPreference !== 'NO_BERTH' ? p.berthPreference.replace(/_/g, ' ').toLowerCase() : 'no berth preference')}</small></td>
+        <td>${p.concessionType && p.concessionType !== 'NONE' ? escapeHtml(p.concessionType.replace(/_/g, ' ').toLowerCase()) : 'none'}</td>
+        <td><strong>${status}</strong></td>
+        <td class="num">${money(f?.baseFare)}</td>
+        <td class="num">${f && f.concessionDiscount > 0 ? '-' + formatMoney(f.concessionDiscount) : '—'}</td>
+        <td class="num">${money(f ? f.reservationCharge + f.superfastCharge + f.tatkalCharge + f.dynamicSurcharge : 0)}</td>
+        <td class="num">${money(f?.gst)}</td>
+        <td class="num">${money(f?.insurance)}</td>
+        <td class="num"><strong>${money(f?.totalFare)}</strong></td>
+      </tr>`;
+  }).join('');
+  document.getElementById('summary-passengers-card').innerHTML = `
+    <div class="card-header"><h3>Travellers (${selectedPassengers.length})</h3></div>
+    <div class="sum-table-wrap">
+      <table class="sum-table">
+        <thead><tr><th>Traveller</th><th>Concession</th><th>Status</th><th class="num">Base fare</th><th class="num">Discount</th><th class="num">Charges*</th><th class="num">GST</th><th class="num">Insurance</th><th class="num">Fare</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <p class="pax-note">* Reservation, superfast and Tatkal charges. All amounts come from the booking.</p>`;
 }
 
 function renderServerFareBreakdown() {
@@ -1490,6 +1163,15 @@ window.processPaymentFlow = async () => {
     const orderData = await Service.createRazorpayOrder(pnr);
     hideLoading();
 
+    // The server found that this booking was already paid (the answer was lost earlier): nothing to pay
+    if (orderData && orderData.alreadyPaid) {
+      btn.disabled = false;
+      btn.textContent = 'Pay now';
+      showToast(`This booking is already paid. It is ${String(orderData.bookingStatus).replace(/_/g, ' ')}.`, 'success');
+      navigateTo('bookings');
+      return;
+    }
+
     if (!orderData || !orderData.orderId || !orderData.keyId) {
       throw new Error('Invalid gateway order response from server');
     }
@@ -1503,7 +1185,7 @@ window.processPaymentFlow = async () => {
       key: orderData.keyId,
       amount: orderData.amount,
       currency: orderData.currency || 'INR',
-      name: 'RailConnect Reservation',
+      name: 'Railway Reservation & Management System',
       description: `Payment for PNR ${pnr}`,
       order_id: orderData.orderId,
       prefill: {
@@ -1516,7 +1198,7 @@ window.processPaymentFlow = async () => {
       },
       modal: {
         ondismiss: function () {
-          btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg> Pay Securely Now';
+          btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg> Pay now';
           btn.disabled = false;
           showToast('Payment window closed. Your hold remains active until the timer expires.', 'warning');
         }
@@ -1535,16 +1217,8 @@ window.processPaymentFlow = async () => {
           const verifyRes = await Service.verifyRazorpayPayment(verifyPayload);
           hideLoading();
 
-          // Check if server verified success or reported late hold expiry
-          if (verifyRes.success === false || verifyRes.error?.code === 'HOLD_EXPIRED') {
-            const refundMsg = verifyRes.error?.message || 'Payment arrived after seat hold expired. Full auto-refund issued.';
-            showToast(refundMsg, 'error');
-            if (State.bookingFlow.holdTimerInterval) clearInterval(State.bookingFlow.holdTimerInterval);
-            renderExpiredRefundNotice(verifyRes.data?.refund);
-            return;
-          }
-
           // Successful payment confirmation
+          // (a late payment is HTTP 200 with success:false, so it is thrown by the API helper and handled in the catch below)
           if (State.bookingFlow.holdTimerInterval) {
             clearInterval(State.bookingFlow.holdTimerInterval);
             State.bookingFlow.holdTimerInterval = null;
@@ -1562,8 +1236,30 @@ window.processPaymentFlow = async () => {
 
         } catch (vErr) {
           hideLoading();
+
+          // Final error: the payment arrived after the hold expired. The server has already refunded it.
+          // Pay stays disabled: the seats are gone and a second payment would only be refunded again.
+          if (vErr?.code === 'HOLD_EXPIRED') {
+            if (State.bookingFlow.holdTimerInterval) {
+              clearInterval(State.bookingFlow.holdTimerInterval);
+              State.bookingFlow.holdTimerInterval = null;
+            }
+            renderExpiredRefundNotice(vErr.data?.refund, vErr.message);
+            showToast('Payment arrived after your hold expired. It has been refunded.', 'error');
+            btn.disabled = true;
+            return;
+          }
+
+          // Not a clear "no": the payment may have gone through at Razorpay even though the answer was lost.
+          // Network error, a server error, or "being processed" -> ask the server to check with Razorpay. Never pay again.
+          if (isUnsureVerifyError(vErr)) {
+            await confirmPaymentAfterLostAnswer(pnr, btn);
+            return;
+          }
+
+          // Final error (for example a bad signature): let the user try again
           showToast(vErr?.message || 'Payment verification failed on server.', 'error');
-          btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg> Pay Securely Now';
+          btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg> Pay now';
           btn.disabled = false;
         }
       }
@@ -1572,7 +1268,7 @@ window.processPaymentFlow = async () => {
     const rzp = new window.Razorpay(options);
     rzp.on('payment.failed', function (resp) {
       hideLoading();
-      btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg> Pay Securely Now';
+      btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg> Pay now';
       btn.disabled = false;
       showToast(`Gateway error: ${resp.error?.description || 'Transaction declined'}`, 'error');
     });
@@ -1581,7 +1277,7 @@ window.processPaymentFlow = async () => {
 
   } catch (err) {
     hideLoading();
-    btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg> Pay Securely Now';
+    btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg> Pay now';
     btn.disabled = false;
     const msg = (typeof window.Razorpay === 'undefined' || window.__rzp_load_failed || err?.message?.includes('Checkout SDK') || err?.message?.includes('Payment window'))
       ? 'Payment window could not load. Check internet and retry.'
@@ -1590,14 +1286,103 @@ window.processPaymentFlow = async () => {
   }
 };
 
-function renderExpiredRefundNotice(refund) {
-  const container = document.getElementById('payment-details-upi');
+// True when we cannot tell if the money was taken: no answer from the server, or a server-side problem.
+function isUnsureVerifyError(err) {
+  const status = Number(err?.status);
+  if (err?.code === 'NETWORK_ERROR' || status === 0) return true;
+  return status >= 500 || status === 429;
+}
+
+/**
+ * The browser paid at Razorpay but /verify gave no clear answer. Ask the server to check the order.
+ * Shows "We are confirming your payment. Please do not pay again." then the result.
+ */
+async function confirmPaymentAfterLostAnswer(pnr, btn) {
+  if (btn) btn.disabled = true; // never allow a second payment while we check
+  const notice = document.getElementById('payment-final-notice');
+  if (notice) {
+    notice.innerHTML = '<div class="warning-box" style="margin:12px 0;"><strong>We are confirming your payment.</strong><p style="margin:6px 0 0 0;font-size:13px;">Please do not pay again.</p></div>';
+  }
+  showLoading('We are confirming your payment. Please do not pay again.');
+
+  let result = null;
+  // The server may need a moment (rate limit is one check per 10 seconds); try a few times
+  for (let attempt = 0; attempt < 4 && !result; attempt++) {
+    try {
+      result = await Service.reconcilePayment(pnr);
+    } catch (rErr) {
+      if (rErr?.status === 429 || rErr?.code === 'NETWORK_ERROR' || Number(rErr?.status) >= 500) {
+        await new Promise(r => setTimeout(r, 10500));
+      } else {
+        break;
+      }
+    }
+  }
+  hideLoading();
+
+  if (State.bookingFlow.holdTimerInterval) {
+    clearInterval(State.bookingFlow.holdTimerInterval);
+    State.bookingFlow.holdTimerInterval = null;
+  }
+
+  Service.getUserBookings().then(b => {
+    State.allBookings = Array.isArray(b) ? b : [];
+    updateBookingBadge();
+  }).catch(() => {});
+
+  if (result && result.paidAfterHoldExpired) {
+    renderExpiredRefundNotice(result.refund, 'Your payment arrived after the seat hold expired, so no ticket was issued. The full amount is being refunded.');
+    showToast('Payment arrived after your hold expired. It is being refunded.', 'error');
+    return;
+  }
+  if (result && result.paymentReceived && ['CONFIRMED', 'RAC', 'WAITING_LIST'].includes(result.bookingStatus)) {
+    showToast(`Payment confirmed! Booking ${pnr} is ${result.bookingStatus.replace(/_/g, ' ')}.`, 'success');
+    if (notice) notice.innerHTML = '';
+    navigateTo('bookings');
+    return;
+  }
+  // Still not confirmed: keep Pay disabled and tell the passenger what to do
+  if (notice) {
+    notice.innerHTML = '<div class="warning-box" style="margin:12px 0;"><strong>We could not confirm your payment yet.</strong><p style="margin:6px 0 0 0;font-size:13px;">Please do not pay again. Open My Bookings and press "Check payment status" in a minute. If the money was taken, your ticket is issued or the amount is refunded automatically.</p></div>';
+  }
+  showToast('We could not confirm your payment yet. Please do not pay again.', 'warning');
+}
+
+window.checkPaymentStatus = async (pnr, btn) => {
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+  try {
+    const res = await Service.reconcilePayment(pnr);
+    if (res.paidAfterHoldExpired) {
+      showToast('Your payment arrived after the hold expired. It is being refunded.', 'warning');
+    } else if (res.paymentReceived) {
+      showToast(`Payment confirmed! Booking ${pnr} is ${String(res.bookingStatus).replace(/_/g, ' ')}.`, 'success');
+    } else {
+      showToast('No payment received yet for this booking.', 'info');
+    }
+  } catch (err) {
+    showToast(err?.message || 'Could not check the payment status.', 'error');
+  }
+  try {
+    const b = await Service.getUserBookings();
+    State.allBookings = Array.isArray(b) ? b : [];
+    updateBookingBadge();
+    renderBookingsPage();
+  } catch (_) { /* ignore */ }
+};
+
+function renderExpiredRefundNotice(refund, serverMessage) {
+  const container = document.getElementById('payment-final-notice');
   if (container) {
     container.innerHTML = `
-      <div class="warning-box" style="margin-top:12px;background:rgba(239,68,68,0.1);border:1px solid var(--clr-danger);color:var(--clr-text-1);">
-        <strong>⚠️ Seat Hold Expired (HOLD_EXPIRED)</strong>
-        <p style="margin:6px 0 0 0;font-size:13px;">Your payment was captured after the seat hold duration lapsed. The railway booking could not be completed, and an automatic 100% gateway refund has been registered.</p>
-        ${refund ? `<div style="font-size:12px;margin-top:6px;color:var(--clr-text-2);">Refund ID: ${refund.refundId || 'Auto'} | Status: ${refund.status || 'PROCESSED'} | Amount: ${refund.amount ? formatMoney(refund.amount) : '—'}</div>` : ''}
+      <div class="warning-box" style="margin:12px 0;background:rgba(239,68,68,0.1);border:1px solid var(--clr-danger);color:var(--clr-text-1);">
+        <strong>⚠️ Payment arrived after your hold expired</strong>
+        <p style="margin:6px 0 0 0;font-size:13px;">${escapeHtml(serverMessage || 'Your seats were released before the payment was received, so no ticket was issued. The full amount is being refunded to your payment method.')}</p>
+        ${refund ? `<div style="font-size:13px;margin-top:8px;color:var(--clr-text-2);">
+          <div><strong>Refund amount:</strong> ${refund.amount != null ? formatMoney(refund.amount) : '—'}</div>
+          <div><strong>Refund status:</strong> ${refund.status === 'PROCESSED' ? 'Processed' : 'Being processed'}</div>
+          ${refund.refundId ? `<div><strong>Refund ID:</strong> ${escapeHtml(refund.refundId)}</div>` : ''}
+        </div>` : ''}
+        <button type="button" class="btn-primary" style="margin-top:10px;" onclick="startOverBooking()">Start a new booking</button>
       </div>
     `;
   }
@@ -1714,7 +1499,11 @@ function renderFilteredBookings(bookings) {
 
   container.innerHTML = bookings.map(b => {
     const canCancel = ['CONFIRMED', 'RAC', 'WAITING_LIST'].includes(b.bookingStatus);
-    const canTDR = b.bookingStatus === 'CONFIRMED';
+    const canTDR = ['CONFIRMED', 'RAC'].includes(b.bookingStatus);
+    // Hold still running: the passenger may have paid and lost the answer. Expired holds get nothing new.
+    const canCheckPayment = b.bookingStatus === 'PAYMENT_PENDING' && Number(b.holdSecondsRemaining) > 0;
+    const unpaid = b.bookingStatus === 'PAYMENT_PENDING';
+    const holdLeft = Number(b.holdSecondsRemaining) || 0;
     const trainDisplayName = b.trainName || (b.trainNumber ? `Train ${b.trainNumber}` : (b.train?.trainName || 'Train'));
     const paxCountText = b.passengerCount ? ` · ${b.passengerCount} passenger${b.passengerCount > 1 ? 's' : ''}` : '';
     const fareDisplay = b.totalFare != null ? formatMoney(b.totalFare) : '—';
@@ -1724,7 +1513,7 @@ function renderFilteredBookings(bookings) {
         <div class="bfc-header">
           <div>
             <div class="bfc-pnr">PNR: ${b.pnr}</div>
-            <div style="font-size:12px;color:var(--clr-text-3);margin-top:2px;">Booked on ${formatDate(b.createdAt?.split('T')[0])}${paxCountText}</div>
+            <div style="font-size:12px;color:var(--clr-text-3);margin-top:2px;">Booked on ${formatDate(b.createdAt)}${paxCountText}</div>
           </div>
           <span class="status-badge ${b.bookingStatus}">${b.bookingStatus.replace(/_/g, ' ')}</span>
         </div>
@@ -1750,15 +1539,117 @@ function renderFilteredBookings(bookings) {
             <div class="bfc-fare">${fareDisplay}</div>
           </div>
         </div>
+        ${unpaid ? `
+        <div class="pay-pending-box" data-unpaid-pnr="${b.pnr}">
+          <span><strong>Not paid yet.</strong> ${holdLeft > 0 ? 'Your seats are held for' : 'The hold has ended. The seats are released automatically.'}</span>
+          ${holdLeft > 0 ? `<span class="hold-left" data-hold-end="${Date.now() + holdLeft * 1000}" aria-label="Time left on the seat hold">${formatHold(holdLeft)}</span>` : ''}
+          ${holdLeft > 0 ? `<button class="btn-primary" onclick="resumePayment('${b.pnr}')">Pay now</button>
+          <button class="btn-secondary-sm" style="color:var(--clr-danger);" onclick="cancelUnpaidBooking('${b.pnr}')">Cancel unpaid booking</button>` : ''}
+        </div>
+        <p class="pay-test-note" style="margin:-6px 20px 12px;">${holdLeft > 0 ? 'Test mode: use Netbanking or UPI. International cards are not accepted.' : ''}</p>` : ''}
         <div class="bfc-footer">
           <button class="btn-secondary-sm" onclick="viewPNRDetails('${b.pnr}')">View Details</button>
           ${canCancel ? `<button class="btn-secondary-sm" style="color:var(--clr-danger);" onclick="openCancelModal('${b.pnr}')">Cancel</button>` : ''}
           ${canTDR ? `<button class="btn-secondary-sm" onclick="openTDRPrefill('${b.pnr}')">File TDR</button>` : ''}
+          ${canCheckPayment ? `<button class="btn-secondary-sm" onclick="checkPaymentStatus('${b.pnr}', this)">Check payment status</button>` : ''}
         </div>
       </div>
     `;
   }).join('');
+  startUnpaidTicker();
 }
+
+function formatHold(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// One timer for every unpaid booking shown on My Bookings: counts down, and at zero turns the card into "hold ended"
+let unpaidTicker = null;
+function startUnpaidTicker() {
+  if (unpaidTicker) return;
+  unpaidTicker = setInterval(() => {
+    const spans = document.querySelectorAll('#bookings-list .hold-left[data-hold-end]');
+    if (!spans.length) { clearInterval(unpaidTicker); unpaidTicker = null; return; }
+    let expired = false;
+    spans.forEach(el => {
+      const left = (Number(el.dataset.holdEnd) - Date.now()) / 1000;
+      if (left <= 0) expired = true; else el.textContent = formatHold(left);
+    });
+    if (expired) {
+      clearInterval(unpaidTicker); unpaidTicker = null;
+      Service.getUserBookings().then(b => { State.allBookings = Array.isArray(b) ? b : []; updateBookingBadge(); renderBookingsPage(); }).catch(() => {});
+    }
+  }, 1000);
+}
+
+/**
+ * "Pay now" for a booking that is still PAYMENT_PENDING: rebuild the payment step from the booking (read from the
+ * server) and open it with the remaining hold time. Paying reuses the open Razorpay order of the booking.
+ */
+window.resumePayment = async (pnr) => {
+  showLoading('Opening your unpaid booking...');
+  try {
+    const b = await Service.enquirePNR(pnr);
+    hideLoading();
+    if (!b || b.bookingStatus !== 'PAYMENT_PENDING') {
+      showToast('This booking is not waiting for payment any more.', 'info');
+      const list = await Service.getUserBookings(); State.allBookings = Array.isArray(list) ? list : []; renderBookingsPage();
+      return;
+    }
+    const secs = Number(b.holdSecondsRemaining) || 0;
+    if (secs <= 0) { showToast('The seat hold has ended. Please book again.', 'error'); return; }
+
+    navigateTo('search'); // clears the old flow
+    const stationId = (code) => State.stations.find(s => s.stationCode === code)?.stationId;
+    const flow = State.bookingFlow;
+    flow.pnr = b.pnr;
+    flow.totalFare = Number(b.totalFare);
+    flow.selectedClass = b.classType;
+    flow.searchParams = { fromId: stationId(b.boardingStation?.stationCode), toId: stationId(b.destinationStation?.stationCode), date: String(b.journeyDate).slice(0, 10), classType: b.classType, quota: b.quota };
+    flow.selectedTrain = { trainNumber: b.trainNumber, trainName: b.trainName, departureTime: '—', arrivalTime: '—', duration: '—' };
+    flow.selectedPassengers = (b.passengers || []).map(p => ({ name: p.name, age: p.age, gender: p.gender, concessionType: p.concessionType || 'NONE', berthPreference: 'NO_BERTH' }));
+    flow.fareBreakdown = (b.passengers || []).map(p => ({ passengerNo: p.passengerNo, name: p.name, ...(p.fare || {}) }));
+    flow.passengerStatuses = b.passengers || [];
+    flow.secondsRemaining = secs;
+    goToStep(5);
+    startHoldTimer(secs);
+    renderServerFareBreakdown();
+    document.getElementById('payment-final-notice').innerHTML = '';
+  } catch (err) {
+    hideLoading();
+    showToast(err?.message || 'Could not open this booking.', 'error');
+  }
+};
+
+/** "Cancel unpaid booking": give up the hold. The seats go back at once and any open payment order is closed. */
+window.cancelUnpaidBooking = async (pnr) => {
+  if (!window.confirm(`Cancel the unpaid booking ${pnr}? Your held seats will be released.`)) return;
+  showLoading('Releasing your seats...');
+  try {
+    await Service.cancelUnpaidBooking(pnr);
+    hideLoading();
+    showToast(`Booking ${pnr} was cancelled. Your seats are released. You were not charged.`, 'success');
+  } catch (err) {
+    hideLoading();
+    showToast(err?.message || 'Could not cancel the booking.', 'error');
+  }
+  try {
+    const list = await Service.getUserBookings();
+    State.allBookings = Array.isArray(list) ? list : [];
+    updateBookingBadge();
+    renderBookingsPage();
+  } catch (_) { /* ignore */ }
+};
+
+// Same button on the payment step of the booking flow
+window.cancelUnpaidFromFlow = async () => {
+  const pnr = State.bookingFlow.pnr;
+  if (!pnr) { startOverBooking(); return; }
+  if (State.bookingFlow.holdTimerInterval) { clearInterval(State.bookingFlow.holdTimerInterval); State.bookingFlow.holdTimerInterval = null; }
+  await window.cancelUnpaidBooking(pnr);
+  navigateTo('bookings');
+};
 
 window.viewPNRDetails = (pnr) => {
   document.getElementById('pnr-input').value = pnr;
@@ -1821,7 +1712,7 @@ window.searchPNR = async () => {
         <div class="bfc-header">
           <div>
             <div class="bfc-pnr">PNR: ${result.pnr}</div>
-            <div style="font-size:12px;color:var(--clr-text-3);">Booked on ${formatDate(result.createdAt?.split('T')[0])}</div>
+            <div style="font-size:12px;color:var(--clr-text-3);">Booked on ${formatDate(result.createdAt)}</div>
           </div>
           <span class="status-badge ${result.bookingStatus}">${result.bookingStatus.replace(/_/g, ' ')}</span>
         </div>
@@ -1879,7 +1770,7 @@ function loadProfileData() {
   document.getElementById('profile-name').value = State.user.name;
   document.getElementById('profile-email').value = State.user.email;
   document.getElementById('profile-phone').value = State.user.phone;
-  document.getElementById('profile-since').value = formatDate(State.user.createdAt?.split('T')[0]);
+  document.getElementById('profile-since').value = formatDate(State.user.createdAt);
   document.getElementById('profile-name-display').textContent = State.user.name;
 }
 
@@ -1891,11 +1782,11 @@ window.updateProfile = async (e) => {
       name: document.getElementById('profile-name').value.trim(),
       phone: document.getElementById('profile-phone').value.trim()
     });
-    sessionStorage.setItem('railconnect_user', JSON.stringify(State.user));
+    saveUser();
   } catch (error) {
     hideLoading();
     if (error?.code === 'NOT_AVAILABLE') {
-      showToast(error.message, 'error');
+      showToast(error.message, 'info');
     } else {
       showToast('Could not save profile changes.', 'error');
     }
@@ -1921,29 +1812,25 @@ function renderPassengersPage() {
     container.innerHTML = State.savedPassengers.map(p => `
       <div class="passenger-card">
         <div class="pax-card-header">
-          <div class="pax-avatar">${getInitials(p.name)}</div>
+          <div class="pax-avatar">${escapeHtml(getInitials(p.name))}</div>
           <div>
-            <div class="pax-card-name">${p.name}</div>
-            <div class="pax-card-sub">${p.age} yrs | ${p.gender}</div>
+            <div class="pax-card-name">${escapeHtml(p.name)}</div>
+            <div class="pax-card-sub">${escapeHtml(p.age)} yrs | ${escapeHtml(p.gender)}</div>
           </div>
         </div>
         <div class="pax-details">
           <div class="pax-detail-row">
             <span class="pax-detail-label">ID Proof</span>
-            <span class="pax-detail-value">${p.idProofType}: ${p.idProofReference}</span>
+            <span class="pax-detail-value">${escapeHtml(p.idProofType)}: ${escapeHtml(p.idProofReference)}</span>
           </div>
           <div class="pax-detail-row">
             <span class="pax-detail-label">Berth Pref.</span>
-            <span class="pax-detail-value">${p.berthPreference}</span>
+            <span class="pax-detail-value">${escapeHtml(p.berthPreference)}</span>
           </div>
-          <div class="pax-detail-row">
-            <span class="pax-detail-label">Concession</span>
-            <span class="pax-detail-value">${p.concessionType !== 'NONE' ? p.concessionType : 'None'}</span>
-          </div>
-          ${p.disabilityType !== 'NONE' ? `
+          ${p.disabilityType && p.disabilityType !== 'NONE' ? `
             <div class="pax-detail-row">
               <span class="pax-detail-label">Disability</span>
-              <span class="pax-detail-value">${p.disabilityType}</span>
+              <span class="pax-detail-value">${escapeHtml(p.disabilityType)}</span>
             </div>` : ''}
         </div>
         <div class="pax-card-footer">
@@ -1981,24 +1868,21 @@ window.editPassenger = (id) => {
   document.getElementById('modal-pax-gender').value = passenger.gender;
   document.getElementById('modal-pax-id-type').value = passenger.idProofType;
   document.getElementById('modal-pax-id-ref').value = passenger.idProofReference;
-  document.getElementById('modal-pax-berth').value = passenger.berthPreference;
-  document.getElementById('modal-pax-concession').value = passenger.concessionType;
-  document.getElementById('modal-pax-disability').value = passenger.disabilityType;
+  document.getElementById('modal-pax-berth').value = passenger.berthPreference || 'NO_BERTH';
+  document.getElementById('modal-pax-disability').value = passenger.disabilityType || 'NONE';
   openModal('modal-add-passenger');
 };
 
 window.savePassenger = async (e) => {
   e.preventDefault();
+  // Concession is chosen per booking, not stored on a saved passenger
   const newPax = {
-    passengerId: editingPassengerId || Date.now(),
-    userId: State.user.userId,
     name: document.getElementById('modal-pax-name').value.trim(),
-    age: parseInt(document.getElementById('modal-pax-age').value),
+    age: parseInt(document.getElementById('modal-pax-age').value, 10),
     gender: document.getElementById('modal-pax-gender').value,
     idProofType: document.getElementById('modal-pax-id-type').value,
     idProofReference: document.getElementById('modal-pax-id-ref').value.trim(),
     disabilityType: document.getElementById('modal-pax-disability').value,
-    concessionType: document.getElementById('modal-pax-concession').value,
     berthPreference: document.getElementById('modal-pax-berth').value
   };
 
@@ -2014,14 +1898,11 @@ window.savePassenger = async (e) => {
     }
     editingPassengerId = null;
     renderPassengersPage();
+    renderHomeStats();
     closeModal('modal-add-passenger');
     e.target.reset();
   } catch (error) {
-    if (error?.code === 'NOT_AVAILABLE') {
-      showToast(error.message, 'error');
-    } else {
-      showToast('Could not save passenger details.', 'error');
-    }
+    showToast(error?.message || 'Could not save passenger details.', 'error');
   }
 };
 
@@ -2030,13 +1911,11 @@ window.deletePassenger = async (id) => {
     await Service.deletePassenger(id);
     State.savedPassengers = State.savedPassengers.filter(p => p.passengerId !== id);
     renderPassengersPage();
+    renderHomeStats();
     showToast('Passenger removed', 'success');
   } catch (error) {
-    if (error?.code === 'NOT_AVAILABLE') {
-      showToast(error.message, 'error');
-    } else {
-      showToast('Could not remove passenger.', 'error');
-    }
+    // A 409 means the passenger is used in a booking; the server message explains it
+    showToast(error?.message || 'Could not remove passenger.', 'error');
   }
 };
 
@@ -2054,20 +1933,25 @@ async function renderTDRPage() {
       return;
     }
 
+    const refundWord = { PENDING: 'Refund is being sent', PROCESSED: 'Refund sent to your payment method', FAILED: 'Refund failed, it will be retried' };
+    const statusWord = { FILED: 'Filed, waiting for review', UNDER_REVIEW: 'Under review', APPROVED: 'Approved', REJECTED: 'Rejected', REFUND_PROCESSED: 'Approved and refunded' };
     container.innerHTML = tdrs.map(t => `
       <div class="tdr-card">
         <div>
-          <div class="tdr-pnr">PNR: ${t.pnr} ${t.passengerNo ? `· Pax #${t.passengerNo}` : ''}</div>
-          <div class="tdr-reason">${(t.reason || '').replace(/_/g, ' ')}</div>
-          <div class="tdr-date">Filed: ${formatDate(t.filedAt ? t.filedAt.split('T')[0] : '')}</div>
-          ${t.remarks ? `<div style="font-size:12px;color:var(--clr-text-3);margin-top:4px;">${t.remarks}</div>` : ''}
+          <div class="tdr-pnr">${escapeHtml(t.passengerName || 'Passenger ' + (t.passengerNo || ''))} · PNR ${escapeHtml(t.pnr)}</div>
+          <div class="tdr-reason">${escapeHtml(t.reasonLabel || (t.reason || '').replace(/_/g, ' '))}</div>
+          <div class="tdr-date">${escapeHtml(t.trainNumber || '')} ${escapeHtml(t.trainName || '')} · journey ${formatDate(t.journeyDate)}</div>
+          <div class="tdr-date">Reference ${escapeHtml(t.tdrRefNo)} · filed ${formatDate(t.filedAt ? t.filedAt.split(/[T ]/)[0] : '')}</div>
+          ${t.remarks ? `<div style="font-size:12px;color:var(--clr-text-2);margin-top:4px;">Note from the reviewer: ${escapeHtml(t.remarks)}</div>` : ''}
         </div>
         <div style="text-align:right;">
-          <span class="status-badge ${t.status}">${(t.status || 'FILED').replace(/_/g, ' ')}</span>
-          ${t.refundAmount ? `
+          <span class="status-badge ${t.status}">${escapeHtml((t.status || 'FILED').replace(/_/g, ' '))}</span>
+          <div style="font-size:12px;color:var(--clr-text-2);margin-top:6px;">${escapeHtml(statusWord[t.status] || '')}</div>
+          ${t.refundAmount != null ? `
             <div class="tdr-refund" style="margin-top:8px;">${formatMoney(t.refundAmount)}</div>
-            <div class="tdr-refund-label">Refund Amount</div>
-          ` : '<div style="font-size:12px;color:var(--clr-text-3);margin-top:8px;">Under Review</div>'}
+            <div class="tdr-refund-label">Refund amount</div>
+            <div style="font-size:12px;margin-top:4px;color:var(--clr-text);"><strong>${escapeHtml(t.refundStatus ? (refundWord[t.refundStatus] || t.refundStatus) : 'Refund not started')}</strong></div>
+          ` : `<div style="font-size:12px;color:var(--clr-text-2);margin-top:8px;">${t.status === 'REJECTED' ? 'No refund' : 'Refund amount is set when the review is done'}</div>`}
         </div>
       </div>
     `).join('');
@@ -2077,49 +1961,130 @@ async function renderTDRPage() {
   }
 }
 
-window.openFileTDRModal = () => openModal('modal-file-tdr');
-window.openTDRPrefill = (pnr) => {
-  const pnrInput = document.getElementById('tdr-pnr');
-  if (pnrInput) pnrInput.value = pnr;
+let tdrData = null;
+
+window.openFileTDRModal = () => {
+  tdrData = null;
+  document.getElementById('tdr-pnr').value = '';
+  document.getElementById('tdr-dynamic').innerHTML = '<p class="pax-note">Type the 10-digit PNR and press "Check this PNR". You will see which reasons you can use for each passenger.</p>';
+  document.getElementById('tdr-error').hidden = true;
+  document.getElementById('tdr-submit').disabled = true;
   openModal('modal-file-tdr');
 };
 
+window.openTDRPrefill = (pnr) => {
+  window.openFileTDRModal();
+  document.getElementById('tdr-pnr').value = pnr;
+  window.loadTdrEligibility();
+};
+
+/** Load the PNR with the train's current delay, the passengers (names) and, per passenger, which TDR reasons can be used now. */
+window.loadTdrEligibility = async () => {
+  const pnr = document.getElementById('tdr-pnr').value.trim();
+  const box = document.getElementById('tdr-dynamic');
+  document.getElementById('tdr-error').hidden = true;
+  if (!/^\d{10}$/.test(pnr)) { box.innerHTML = '<p class="tdr-error">Enter a 10-digit PNR.</p>'; return; }
+  box.innerHTML = '<p class="pax-note">Checking the PNR...</p>';
+  try {
+    tdrData = await Service.getTdrEligibility(pnr);
+    renderTdrForm();
+  } catch (err) {
+    tdrData = null;
+    box.innerHTML = `<p class="tdr-error">${escapeHtml(err?.status === 404 ? 'No booking found for this PNR.' : err?.status === 403 ? 'This PNR belongs to another account.' : (err?.message || 'The PNR could not be checked.'))}</p>`;
+    document.getElementById('tdr-submit').disabled = true;
+  }
+};
+
+function tdrSelectedNos() {
+  return Array.from(document.querySelectorAll('#tdr-dynamic input[name="tdr-pax"]:checked')).map(i => Number(i.value));
+}
+
+/** For the chosen passengers (or all, if none is ticked yet): can this reason be used, and if not, why in one line. */
+function tdrReasonState(reasonCode) {
+  const nos = tdrSelectedNos();
+  const group = tdrData.passengers.filter(p => nos.length ? nos.includes(p.passengerNo) : true);
+  const states = group.map(p => ({ p, r: p.reasons.find(x => x.code === reasonCode) }));
+  const bad = states.filter(x => !x.r || !x.r.eligible);
+  if (nos.length) return bad.length ? { ok: false, why: bad.map(x => `${x.p.name}: ${x.r ? x.r.why : 'not available'}`).join(' ') } : { ok: true };
+  return bad.length === states.length ? { ok: false, why: bad[0] && bad[0].r ? (states.length > 1 ? 'Not available for any passenger of this PNR. ' : '') + bad[0].r.why : 'Not available.' } : { ok: true };
+}
+
+function renderTdrForm() {
+  const d = tdrData;
+  const box = document.getElementById('tdr-dynamic');
+  const prevReason = (document.querySelector('#tdr-dynamic input[name="tdr-reason"]:checked') || {}).value;
+  const prevNos = tdrSelectedNos();
+  const delayText = d.delayMinutes > 0 ? `<strong>${d.delayMinutes} minutes late</strong>${d.delayMinutes >= 180 ? ' (3 hours or more)' : ' (less than 3 hours)'}` : '<strong>on time</strong>';
+  box.innerHTML = `
+    <div class="tdr-train-box">
+      <div><strong>${escapeHtml(d.trainNumber)} ${escapeHtml(d.trainName)}</strong> · ${escapeHtml(d.from)} to ${escapeHtml(d.to)} · ${formatDate(d.journeyDate)}</div>
+      <div>The train is ${delayText}. ${d.departed ? 'It has left the boarding station.' : 'It has not left the boarding station yet.'}</div>
+    </div>
+    <fieldset class="tdr-fieldset"><legend>Passengers</legend>
+      ${d.passengers.map(p => `
+        <label class="tdr-pax">
+          <input type="checkbox" name="tdr-pax" value="${p.passengerNo}" ${prevNos.includes(p.passengerNo) ? 'checked' : ''}>
+          <span><strong>${escapeHtml(p.name)}</strong> <span class="pax-meta" style="display:inline;">(passenger ${p.passengerNo}, ${escapeHtml(p.age)} yrs, ${escapeHtml(String(p.gender).toLowerCase())}) · ticket: ${escapeHtml(String(p.reservationStatus).replace(/_/g, ' '))}</span></span>
+        </label>`).join('')}
+    </fieldset>
+    <fieldset class="tdr-fieldset"><legend>Reason</legend>
+      ${d.reasons.map(r => {
+        const st = tdrReasonState(r.code);
+        return `
+        <label class="tdr-reason-opt ${st.ok ? '' : 'disabled'}">
+          <input type="radio" name="tdr-reason" value="${r.code}" ${st.ok ? '' : 'disabled'} ${st.ok && prevReason === r.code ? 'checked' : ''} data-evidence="${r.evidenceRequired ? 1 : 0}">
+          <span><strong>${escapeHtml(r.label)}</strong>
+            <span class="pax-meta">${st.ok ? escapeHtml(r.description) + (r.refundPct < 100 ? ` Refund: ${r.refundPct}% of the fare.` : '') : 'Not available: ' + escapeHtml(st.why)}</span>
+          </span>
+        </label>`;
+      }).join('')}
+    </fieldset>
+    <div class="form-group" id="tdr-evidence-row" hidden>
+      <label class="form-label" for="tdr-evidence">Evidence reference *</label>
+      <input type="text" class="form-input" id="tdr-evidence" placeholder="e.g. TTE certificate number or station memo" />
+    </div>`;
+  box.querySelectorAll('input').forEach(i => i.addEventListener('change', onTdrChange));
+  onTdrChange({ target: { name: 'init' } });
+}
+
+function onTdrChange(e) {
+  // Changing the passengers changes which reasons are usable
+  if (e && e.target && e.target.name === 'tdr-pax') { renderTdrForm(); return; }
+  const reason = document.querySelector('#tdr-dynamic input[name="tdr-reason"]:checked');
+  const needsEvidence = reason && reason.dataset.evidence === '1';
+  const evRow = document.getElementById('tdr-evidence-row');
+  if (evRow) evRow.hidden = !needsEvidence;
+  document.getElementById('tdr-submit').disabled = !(reason && tdrSelectedNos().length > 0);
+}
+
 window.submitTDR = async (e) => {
   e.preventDefault();
-  const pnr = document.getElementById('tdr-pnr')?.value?.trim();
-  const reason = document.getElementById('tdr-reason')?.value;
-  const paxInput = document.getElementById('tdr-passengers')?.value?.trim() || '1';
+  const errBox = document.getElementById('tdr-error');
+  errBox.hidden = true;
+  if (!tdrData) { errBox.textContent = 'Check the PNR first.'; errBox.hidden = false; return; }
+  const reason = (document.querySelector('#tdr-dynamic input[name="tdr-reason"]:checked') || {}).value;
+  const passengerNos = tdrSelectedNos();
   const evidenceReference = document.getElementById('tdr-evidence')?.value?.trim() || null;
-
-  if (!pnr || !reason) {
-    showToast('PNR and reason are required', 'error');
-    return;
+  if (!passengerNos.length) { errBox.textContent = 'Tick at least one passenger.'; errBox.hidden = false; return; }
+  if (!reason) { errBox.textContent = 'Choose a reason.'; errBox.hidden = false; return; }
+  if (document.querySelector('#tdr-dynamic input[name="tdr-reason"]:checked').dataset.evidence === '1' && !evidenceReference) {
+    errBox.textContent = 'This reason needs an evidence reference.'; errBox.hidden = false; return;
   }
-
-  // Parse comma-separated passenger numbers
-  const passengerNos = paxInput.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
-  if (passengerNos.length === 0) passengerNos.push(1);
 
   showLoading('Submitting TDR request...');
   try {
-    const payload = {
-      pnr,
-      reason,
-      passengerNos,
-      evidenceReference
-    };
-
-    const result = await Service.fileTDR(payload);
+    const result = await Service.fileTDR({ pnr: tdrData.pnr, reason, passengerNos, evidenceReference });
     hideLoading();
     closeModal('modal-file-tdr');
     const refDisplay = result.tdrRefNo || (result.tdrRefNos ? result.tdrRefNos.join(', ') : 'Filed');
-    showToast(`TDR filed successfully! Reference: ${refDisplay}`, 'success');
+    showToast(`TDR filed. Reference: ${refDisplay}`, 'success');
     renderTDRPage();
-    e.target.reset();
   } catch (err) {
-    console.error('Failed to file TDR:', err);
     hideLoading();
-    showToast(err?.message || 'Failed to file TDR', 'error');
+    // The server's message already says exactly why (passenger, reason, delay or deadline)
+    errBox.textContent = err?.message || 'The TDR could not be filed.';
+    errBox.hidden = false;
+    try { tdrData = await Service.getTdrEligibility(tdrData.pnr); renderTdrForm(); } catch (_) { /* keep the old view */ }
   }
 };
 
@@ -2193,18 +2158,19 @@ function renderAlertsPage() {
       return;
     }
 
+    // notificationId is a text id from the server, so it must be quoted inside onclick
     container.innerHTML = State.notifications.map(n => `
-      <div class="alert-item ${n.type} ${n.isRead ? '' : 'unread'}" id="alert-${n.notificationId}">
+      <div class="alert-item ${escapeHtml(n.type)} ${n.isRead ? '' : 'unread'}" id="alert-${escapeHtml(n.notificationId)}">
         <div class="alert-icon">${getAlertIcon(n.type)}</div>
         <div class="alert-content">
-          <div class="alert-title">${n.title}</div>
-          <div class="alert-msg">${n.message}</div>
+          <div class="alert-title">${escapeHtml(n.title)}</div>
+          <div class="alert-msg">${escapeHtml(n.message)}</div>
           <div class="alert-time">${timeAgo(n.createdAt)}</div>
         </div>
         ${!n.isRead ? `
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
             <div class="unread-dot"></div>
-            <button class="btn-secondary-sm" onclick="markRead(${n.notificationId})">Mark Read</button>
+            <button class="btn-secondary-sm" data-notification-id="${escapeHtml(n.notificationId)}" onclick="markRead(this.dataset.notificationId)">Mark Read</button>
           </div>` : ''}
       </div>
     `).join('');
@@ -2217,22 +2183,39 @@ function renderAlertsPage() {
 }
 
 window.markRead = async (id) => {
-  await Service.markNotificationRead(id);
-  const notif = State.notifications.find(n => n.notificationId === id);
+  try {
+    await Service.markNotificationRead(id);
+  } catch (err) {
+    showToast(err?.message || 'Could not mark the notification as read.', 'error');
+    return;
+  }
+  const notif = State.notifications.find(n => String(n.notificationId) === String(id));
   if (notif) notif.isRead = true;
   renderAlertsPage();
   renderHomeAlerts();
+  renderHomeStats();
   updateNotifBadge();
 };
 
 window.markAllRead = async () => {
-  await Promise.all(State.notifications.filter(notification => !notification.isRead)
-    .map(notification => Service.markNotificationRead(notification.notificationId)));
-  State.notifications.forEach(n => n.isRead = true);
+  const unread = State.notifications.filter(notification => !notification.isRead);
+  if (!unread.length) {
+    showToast('No unread notifications', 'info');
+    return;
+  }
+  // Mark only the ones the server accepted, so the unread count stays correct if one fails
+  const results = await Promise.allSettled(unread.map(n => Service.markNotificationRead(n.notificationId)));
+  let failed = 0;
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') unread[i].isRead = true;
+    else failed++;
+  });
   renderAlertsPage();
   renderHomeAlerts();
+  renderHomeStats();
   updateNotifBadge();
-  showToast('All notifications marked as read', 'success');
+  if (failed) showToast(`${failed} notification(s) could not be marked as read.`, 'error');
+  else showToast('All notifications marked as read', 'success');
 };
 
 // ════════════════════════════════════════════════════════════════ CANCEL BOOKING
@@ -2331,6 +2314,18 @@ window.recalculateSelectedCancellationRefund = async () => {
   }
 };
 
+// Say "processed" only when the server says the refund really is PROCESSED. PENDING or FAILED (retried later) = "being processed".
+function cancelRefundMessage(result) {
+  const amount = Number(result.refundAmount || 0);
+  if (!(amount > 0)) return 'Cancellation successful. No refund is due for this cancellation.';
+  const gw = result.gatewayRefund;
+  const rowStatus = result.refund && result.refund.status;
+  const done = (gw === 'PROCESSED' || gw === 'SKIPPED') && rowStatus === 'PROCESSED';
+  return done
+    ? `Cancellation successful! Refund of ${formatMoney(amount)} processed.`
+    : `Cancellation successful! Refund of ${formatMoney(amount)} is being processed.`;
+}
+
 window.confirmCancellation = async () => {
   if (!pendingCancelPNR) return;
 
@@ -2345,7 +2340,7 @@ window.confirmCancellation = async () => {
     const result = await Service.cancelBooking(pendingCancelPNR, selectedNos);
     hideLoading();
     closeModal('modal-cancel-booking');
-    showToast(`Cancellation successful! Refund of ${formatMoney(result.refundAmount)} processed.`, 'success');
+    showToast(cancelRefundMessage(result), 'success');
 
     // Reload bookings to reflect updated statuses
     const updatedBookings = await Service.getUserBookings();
@@ -2444,9 +2439,20 @@ function formatMoney(amount) {
   });
 }
 
+// Escapes text before it is placed into HTML (names and messages come from the server or the user)
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function timeAgo(dateStr) {
   if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
+  // Server times are India-time strings "YYYY-MM-DD HH:MM:SS" (no Z); the space is turned into T so every browser parses them
+  const diff = Date.now() - new Date(String(dateStr).replace(' ', 'T')).getTime();
   const d = Math.floor(diff / 86400000);
   const h = Math.floor(diff / 3600000);
   const m = Math.floor(diff / 60000);

@@ -7,6 +7,7 @@ const {
   getMyBookings,
   getBookingByPnr
 } = require('../controllers/bookingController');
+const { farePreview, cancelUnpaidBooking } = require('../controllers/bookingPreviewController');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
@@ -16,6 +17,12 @@ router.get('/', authenticate, getMyBookings);
 
 // POST /api/bookings - Online booking creation (login required)
 router.post('/', authenticate, createBooking);
+
+// POST /api/bookings/fare-preview - read-only fare lines, rule problems and estimated status per passenger
+router.post('/fare-preview', authenticate, farePreview);
+
+// POST /api/bookings/:pnr/cancel-unpaid - give up a booking that is still waiting for payment (owner only)
+router.post('/:pnr/cancel-unpaid', authenticate, cancelUnpaidBooking);
 
 // GET /api/bookings/:pnr/hold - Hold time remaining and expiry (owner only)
 router.get('/:pnr/hold', authenticate, getBookingHold);

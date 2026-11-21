@@ -115,15 +115,17 @@ function runStep3() {
   );
 
   // REFUND_RULE
-  const refundRules = [
-    { rule_id: 1, min_hours: 72, max_hours: null, deduction_pct: 0.00, flat_min_charge: 240.00, clerkage: 60.00 },
-    { rule_id: 2, min_hours: 24, max_hours: 72, deduction_pct: 25.00, flat_min_charge: 200.00, clerkage: 60.00 },
-    { rule_id: 3, min_hours: 8, max_hours: 24, deduction_pct: 50.00, flat_min_charge: 180.00, clerkage: 60.00 },
-    { rule_id: 4, min_hours: 0, max_hours: 8, deduction_pct: 100.00, flat_min_charge: 120.00, clerkage: 60.00 }
-  ];
+  // Rules 1-4 are the general slabs (class_id null, flat 120 = fallback). Rules 5-32 are one row per class and slab
+  // with today's per-class flat minimum charges (BR-R2): 1A and EC 240, 2A 200, 3A and CC 180, SL 120, 2S 60.
+  const SLABS = [[72, null, 0.00], [24, 72, 25.00], [8, 24, 50.00], [0, 8, 100.00]];
+  const FLAT_BY_CLASS = { 1: 240.00, 2: 200.00, 3: 180.00, 4: 120.00, 5: 180.00, 6: 240.00, 7: 60.00 };
+  const refundRules = SLABS.map((s, i) => ({ rule_id: i + 1, class_id: null, min_hours: s[0], max_hours: s[1], deduction_pct: s[2], flat_min_charge: 120.00, clerkage: 60.00 }));
+  for (let cls = 1; cls <= 7; cls++) {
+    SLABS.forEach((s, i) => refundRules.push({ rule_id: 4 + (cls - 1) * 4 + i + 1, class_id: cls, min_hours: s[0], max_hours: s[1], deduction_pct: s[2], flat_min_charge: FLAT_BY_CLASS[cls], clerkage: 60.00 }));
+  }
   writeCsv(
     path.join(SEED_MYSQL_DIR, 'REFUND_RULE.csv'),
-    ['rule_id', 'min_hours', 'max_hours', 'deduction_pct', 'flat_min_charge', 'clerkage'],
+    ['rule_id', 'class_id', 'min_hours', 'max_hours', 'deduction_pct', 'flat_min_charge', 'clerkage'],
     refundRules
   );
 
@@ -156,7 +158,12 @@ function runStep3() {
     { setting_key: 'DYNAMIC_FARE_ENABLED', setting_value: 'false', description: 'BR-F11 dynamic Tatkal surcharge flag', updated_at: '2026-10-18 00:00:00' },
     { setting_key: 'MIN_CHARGEABLE_DISTANCE_KM', setting_value: '100', description: 'Minimum billable distance slab', updated_at: '2026-10-18 00:00:00' },
     { setting_key: 'INSURANCE_PREMIUM_PER_PASSENGER', setting_value: '0.45', description: 'Optional travel insurance charge', updated_at: '2026-10-18 00:00:00' },
-    { setting_key: 'GST_RATE_AC', setting_value: '0.05', description: 'GST rate on AC travel classes', updated_at: '2026-10-18 00:00:00' }
+    { setting_key: 'GST_RATE_AC', setting_value: '0.05', description: 'GST rate on AC travel classes', updated_at: '2026-10-18 00:00:00' },
+    { setting_key: 'CONTACT_HELPLINE', setting_value: '1800-000-0139 (demo number, 6 am to 10 pm)', description: 'Contact panel: helpline text (demo value)', updated_at: '2026-10-18 00:00:00' },
+    { setting_key: 'CONTACT_EMAIL', setting_value: 'support@rrms.example.com', description: 'Contact panel: support e-mail (demo value)', updated_at: '2026-10-18 00:00:00' },
+    { setting_key: 'CONTACT_ADDRESS', setting_value: 'RRMS Help Centre (demo address)', description: 'Contact panel: address line (demo value)', updated_at: '2026-10-18 00:00:00' },
+    { setting_key: 'SENIOR_AGE_MALE', setting_value: '60', description: 'Minimum age of a male or other-gender senior citizen', updated_at: '2026-10-18 00:00:00' },
+    { setting_key: 'SENIOR_AGE_FEMALE', setting_value: '45', description: 'Minimum age of a female senior citizen', updated_at: '2026-10-18 00:00:00' }
   ];
   writeCsv(
     path.join(SEED_MYSQL_DIR, 'SETTING.csv'),
@@ -469,7 +476,6 @@ function runStep3() {
   let cancelIdCounter = 1;
   let tdrCounter = 701;
   let refundIdCounter = 1;
-  let snapshotIdCounter = 1;
 
   // Track monthly ticket count per user: userId -> count
   const userTicketCount = {};
@@ -943,6 +949,9 @@ function runStep3() {
 
   // 5. Add ~3% Cancellations, a few Approved TDRs, FAILED and Expired Holds
   console.log('Generating cancellations, refunds, TDRs, and expired holds...');
+  // A refund must point at the payment of the SAME booking (PNR) as its cancellation or TDR
+  const paymentIdByPnr = new Map();
+  for (const p of paymentRows) if (!paymentIdByPnr.has(p.pnr)) paymentIdByPnr.set(p.pnr, p.payment_id);
   const cancelCount = Math.floor(bookingRows.length * 0.03);
   for (let i = 0; i < cancelCount; i++) {
     const bkg = bookingRows[(i * 37) % bookingRows.length];
@@ -965,7 +974,7 @@ function runStep3() {
         refund_id: refundIdCounter++,
         cancel_id: cancelId,
         tdr_ref_no: null,
-        payment_id: 1001 + (i % 100),
+        payment_id: paymentIdByPnr.get(bkg.pnr),
         amount: refAmt,
         reason: 'CANCELLATION',
         status: 'PROCESSED'
@@ -994,7 +1003,7 @@ function runStep3() {
     refund_id: refundIdCounter++,
     cancel_id: null,
     tdr_ref_no: tdr1.tdr_ref_no,
-    payment_id: 1005,
+    payment_id: paymentIdByPnr.get(story2Booking.pnr),
     amount: story2Booking.total_fare,
     reason: 'TDR_APPROVED',
     status: 'PROCESSED'
@@ -1126,25 +1135,10 @@ function runStep3() {
     refundRows
   );
 
-  // CHART_SNAPSHOT (for run 119 on 2026-10-19 Story 4 demo)
+  // CHART_SNAPSHOT: empty on purpose. The seed is frozen at 2026-10-17 19:15 and no chart is prepared yet
+  // (chart_prepared_at is NULL on every run), so no run may own a snapshot. The snapshot is written by sp_prepare_chart
+  // at chart time (Demo Story 4 on run 1111 does exactly that).
   const chartSnapshots = [];
-  const run119Res = reservationRows.filter(r => r.schedule_id === scheduleLookup['119_2026-10-19'] && r.status === 'CONFIRMED');
-  for (const r of run119Res) {
-    chartSnapshots.push({
-      snapshot_id: snapshotIdCounter++,
-      schedule_id: r.schedule_id,
-      pnr: r.pnr,
-      passenger_no: r.passenger_no,
-      coach_no: 'B1',
-      seat_no: 12,
-      berth_type: 'LOWER',
-      status: 'CONFIRMED',
-      from_station_id: 10,
-      to_station_id: 69,
-      concession_flag: 0,
-      generated_at: '2026-10-19 02:00:00'
-    });
-  }
   writeCsv(
     path.join(SEED_MYSQL_DIR, 'CHART_SNAPSHOT.csv'),
     ['snapshot_id', 'schedule_id', 'pnr', 'passenger_no', 'coach_no', 'seat_no', 'berth_type', 'status', 'from_station_id', 'to_station_id', 'concession_flag', 'generated_at'],

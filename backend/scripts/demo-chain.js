@@ -2,13 +2,16 @@
  * Demo Chain Preparation Script
  * File: backend/scripts/demo-chain.js
  * 
- * Fills a single run on or after 29 Oct 2026 to create a complete promotion chain:
+ * Fills a single run from tomorrow onward (date taken from the database clock)
+ * to create a complete promotion chain:
  * - All seats CONFIRMED
  * - RAC queue completely filled
  * - At least 3 WAITING_LIST passengers
  * 
  * Enables live cancellation and TDR promotion demonstrations.
  * Uses only existing stored procedures (sp_create_counter_booking / sp_create_booking).
+ * Also makes sure staff EMP-TC-101 has a TRAIN_DUTY row on the chain run, so
+ * verify, board and no-show work in the staff portal (no duplicate row on re-run).
  * Safe to execute multiple times (idempotent: detects existing chain and displays details).
  */
 
@@ -21,7 +24,7 @@ async function main() {
   console.log('================================================================================\n');
 
   try {
-    // 1. Check if a completed demo chain already exists on any run >= 2026-10-29
+    // 1. Check if a completed demo chain already exists on any run from tomorrow (database date) onward
     const [existingChainRows] = await pool.query(`
       SELECT 
         ts.schedule_id,
@@ -43,7 +46,7 @@ async function main() {
       JOIN TRAIN t ON ts.train_id = t.train_id
       JOIN SCHEDULE_CLASS_INVENTORY sci ON ts.schedule_id = sci.schedule_id
       JOIN SEAT_CLASS sc ON sci.class_id = sc.class_id
-      WHERE ts.journey_date >= '2026-10-29'
+      WHERE ts.journey_date >= DATE_ADD(CURDATE(), INTERVAL 1 DAY)
         AND ts.chart_prepared_at IS NULL
         AND sci.rac_capacity > 0
         AND sci.available_seats = 0
@@ -66,7 +69,7 @@ async function main() {
       console.log(`  - WL Status:     ${targetRun.wl_count}/${targetRun.wl_capacity} (>= 3 WL)`);
       console.log('  - No new bookings needed. Re-displaying demo chain details.\n');
     } else {
-      // 2. Select candidate run: departure >= 2026-10-29, chart not prepared, class with smallest capacity & rac_capacity > 0
+      // 2. Select candidate run: journey from tomorrow (database date), chart not prepared, class with smallest capacity & rac_capacity > 0
       const [candidates] = await pool.query(`
         SELECT 
           ts.schedule_id,
@@ -88,7 +91,9 @@ async function main() {
         JOIN TRAIN t ON ts.train_id = t.train_id
         JOIN SCHEDULE_CLASS_INVENTORY sci ON ts.schedule_id = sci.schedule_id
         JOIN SEAT_CLASS sc ON sci.class_id = sc.class_id
-        WHERE ts.journey_date >= '2026-10-29'
+        WHERE ts.journey_date >= DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+          AND ts.journey_date <= DATE_ADD(CURDATE(), INTERVAL COALESCE((SELECT CAST(setting_value AS SIGNED) FROM SETTING WHERE setting_key = 'BOOKING_WINDOW_DAYS'), 7) DAY)
+          AND ts.status <> 'CANCELLED'
           AND ts.chart_prepared_at IS NULL
           AND sci.rac_capacity > 0
           AND sci.available_seats > 0
@@ -97,7 +102,7 @@ async function main() {
       `);
 
       if (candidates.length === 0) {
-        throw new Error('No candidate schedule found on or after 2026-10-29 with available seats and RAC capacity.');
+        throw new Error('No candidate schedule found from tomorrow onward with available seats and RAC capacity. Run the simulator first (npm run demo:refresh).');
       }
 
       targetRun = candidates[0];
@@ -243,6 +248,39 @@ async function main() {
       console.log(`[demo:chain] Total new bookings created: ${bookingsCreated}\n`);
     }
 
+    // 5b. Make sure ticket collector EMP-TC-101 is on TRAIN_DUTY for this run.
+    // sp_verify_ticket / sp_board_passenger / sp_mark_passenger_noshow only check
+    // that a TRAIN_DUTY row exists for (staff_id, schedule_id) in STAFF_ASSIGNMENT.
+    let dutyNote = 'EMP-TC-101 not found; no duty row added';
+    const [tcRows] = await pool.query(
+      "SELECT staff_id FROM STAFF WHERE employee_no = 'EMP-TC-101' LIMIT 1"
+    );
+    if (tcRows.length > 0) {
+      const tcStaffId = tcRows[0].staff_id;
+      const [dutyRows] = await pool.query(
+        "SELECT assign_id FROM STAFF_ASSIGNMENT WHERE staff_id = ? AND schedule_id = ? AND duty_type = 'TRAIN_DUTY' LIMIT 1",
+        [tcStaffId, targetRun.schedule_id]
+      );
+      if (dutyRows.length > 0) {
+        dutyNote = `EMP-TC-101 already on TRAIN_DUTY (assign_id ${dutyRows[0].assign_id})`;
+      } else {
+        const [originRows] = await pool.query(
+          'SELECT station_id FROM ROUTE_STOP WHERE train_id = ? AND stop_sequence = 1',
+          [targetRun.train_id]
+        );
+        const [[nextIdRow]] = await pool.query('SELECT COALESCE(MAX(assign_id), 0) + 1 AS next_id FROM STAFF_ASSIGNMENT');
+        await pool.query(
+          `INSERT INTO STAFF_ASSIGNMENT (assign_id, staff_id, schedule_id, station_id, duty_type, shift_start, shift_end)
+           SELECT ?, ?, ts.schedule_id, ?, 'TRAIN_DUTY',
+                  TIMESTAMP(ts.journey_date, ts.departure_time) - INTERVAL 2 HOUR,
+                  TIMESTAMP(ts.journey_date, ts.departure_time) + INTERVAL 12 HOUR
+           FROM TRAIN_SCHEDULE ts WHERE ts.schedule_id = ?`,
+          [nextIdRow.next_id, tcStaffId, originRows[0].station_id, targetRun.schedule_id]
+        );
+        dutyNote = `EMP-TC-101 added to TRAIN_DUTY (assign_id ${nextIdRow.next_id})`;
+      }
+    }
+
     // 6. Query demo PNRs
     // A. One CONFIRMED PNR and its owner's email (to log in as and cancel)
     const [confirmedRows] = await pool.query(`
@@ -302,6 +340,8 @@ async function main() {
     console.log(`Owner Login Email:   ${confirmedEmail}`);
     console.log(`First RAC PNR:       ${firstRacPnr}`);
     console.log(`First WL PNR:        ${firstWlPnr}`);
+    console.log(`Staff duty:          ${dutyNote}`);
+    console.log(`Live Trains:         /live-trains, date ${targetRun.journey_date}, search ${targetRun.train_number}, open the train: class ${targetRun.class_code} shows the confirmed, RAC and waiting-list counts`);
     console.log('================================================================================\n');
 
     // 7. Inventory Audit

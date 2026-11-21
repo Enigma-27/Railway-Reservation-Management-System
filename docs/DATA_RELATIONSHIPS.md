@@ -4,13 +4,13 @@
 
 The **Railway Reservation & Management System** is modeled in strict compliance with Third Normal Form (3NF) relational design in MySQL, augmented by a specialized MongoDB NoSQL cluster for operational logs, notifications, and real-time transit status feeds.
 
-The data model directly implements the approved ER diagram (`database/FINALx4_Railway Reservation & Management System – ER Diagram.html`) and Section 16 of the Business Rules (`docs/BUSINESS_RULES.md`), incorporating the canonical IDs and structures of the five master datasets (158 stations, 60 trains with IDs 101–160, 536 route stops with IDs 1001–1536, 50,000 user accounts, and 75,000 saved passenger profiles).
+The data model directly implements the approved ER diagram (`database/FINALx4_Railway Reservation & Management System – ER Diagram.html`) and the Business Rules (`docs/BUSINESS_RULES.md`), incorporating the canonical IDs and structures of the five master datasets (158 stations, 60 trains with IDs 101–160, 536 route stops with IDs 1001–1536, 50,008 user accounts (50,000 synthetic plus demo, staff and admin accounts), and 75,000 saved passenger profiles).
 
 ```mermaid
 erDiagram
     %% SECTION 1: USER / RESERVATION
     USER_ACCOUNT ||--o{ SAVED_PASSENGER : "owns"
-    USER_ACCOUNT ||--o{ SEAT_HOLD : "initiates"
+    USER_ACCOUNT ||--o{ SEAT_HOLD : "initiates (table not used by code)"
     USER_ACCOUNT ||--o{ BOOKING : "places"
     USER_ACCOUNT ||--o| STAFF : "authenticates"
     USER_ACCOUNT ||--o| ADMIN : "authenticates"
@@ -74,7 +74,7 @@ erDiagram
 - **`USER_ACCOUNT` (1) ── (0..N) `SAVED_PASSENGER`**:
   A single user account maintains a saved roster of family or frequent travelers. Concessions are selected dynamically during ticket booking and are not permanently stamped onto passenger profiles (BR-C10).
 - **`USER_ACCOUNT` (1) ── (0..1) `SEAT_HOLD`**:
-  When a user reaches Booking Step 3 (Passenger Details), the system creates an active temporary hold token valid for 10 minutes (BR-B2). At most one active hold is allowed per user.
+  **Present in the schema but not used by any procedure or backend code (only `sp_prepare_chart` deletes its rows).** The real 10-minute hold (BR-B2) is the `BOOKING` row in `PAYMENT_PENDING`, released by `sp_release_expired_holds`.
 - **`USER_ACCOUNT` (1) ── (0..N) `BOOKING`**:
   Customers own their booking transactions and PNRs. A user can create at most 12 bookings per calendar month, or 24 if `aadhaar_verified` is true (BR-B15). The system account `COUNTER_WALKIN` is exempt.
 - **`USER_ACCOUNT` (1) ── (0..1) `STAFF` / `ADMIN`**:

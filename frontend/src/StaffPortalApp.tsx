@@ -12,7 +12,8 @@ import { EmergencyPage } from './pages/EmergencyPage';
 import { CounterBookingPage } from './pages/CounterBookingPage';
 import { MaintenanceTasksPage } from './pages/MaintenanceTasksPage';
 import { useStaff } from './context/StaffContext';
-import { authService } from './admin/services/authService';
+import { signOut } from './auth/session';
+import { indiaClockLabel } from './utils/formatters';
 import {
   Search, Train, Clock, ChevronDown, LogOut, RotateCcw,
   LayoutDashboard, Users, Armchair, FileText, AlertOctagon,
@@ -62,7 +63,7 @@ const NAV_SECTIONS: NavSection[] = [
 
 /* ─── Component ─────────────────────────────────────────────────────────── */
 export const StaffPortalApp: React.FC = () => {
-  const { data, activeStaff, activeTrain, switchStaff, resetData } = useStaff();
+  const { data, activeStaff, activeTrain, refreshAssignmentAndChart } = useStaff();
 
   const [activeTab,         setActiveTab]         = useState<string>('overview');
   const [scannerPrefillPnr, setScannerPrefillPnr] = useState<string>('');
@@ -74,19 +75,18 @@ export const StaffPortalApp: React.FC = () => {
   const profileRef = useRef<HTMLDivElement>(null);
   const navRef     = useRef<HTMLDivElement>(null);
 
-  /* Live clock */
+  /* Live clock (India time, not the browser's time zone) */
   useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      setTimeStr(
-        now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) +
-        '  ' +
-        now.toLocaleTimeString('en-US', { hour12: false })
-      );
-    };
+    const update = () => setTimeStr(indiaClockLabel());
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
+  }, []);
+
+  /* Load the real assignment, chart and reference data after login */
+  useEffect(() => {
+    refreshAssignmentAndChart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* Close dropdowns on outside click */
@@ -103,16 +103,16 @@ export const StaffPortalApp: React.FC = () => {
   const handleIssueFinePrefill = (name: string, idRef: string, reason: string) => {
     setFinePrefill({ name, idRef, reason }); setActiveTab('fines'); setActiveDropdown(null);
   };
-  const handleLogout = () => { authService.staffLogout(); window.location.href = '/'; };
+  const handleLogout = () => { signOut(); window.location.href = '/'; };
 
   /* Badge counts */
-  const trainId  = activeStaff.assignedTrainId || 101;
-  const manifest = data.manifest.filter(m => m.trainId === trainId);
+  // Only counts that really exist on the server chart are shown; lists with no staff read route have no badge
+  const manifest = data.manifest;
   const badges: Record<string, number> = {
     unverified: manifest.filter(m => m.boardingStatus === 'NOT_VERIFIED').length,
-    vacancies:  data.vacancies.filter(v => v.trainId === trainId).length,
-    fines:      data.fines.length,
-    emergency:  data.incidents.filter(i => i.status !== 'RESOLVED').length,
+    vacancies:  0,
+    fines:      0,
+    emergency:  0,
   };
 
   /* Which section contains the active tab */
@@ -233,7 +233,7 @@ export const StaffPortalApp: React.FC = () => {
                       {activeStaff.status === 'ON_DUTY' ? '● ON DUTY' : '○ OFF DUTY'}
                     </span>
                     <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-[#2259c2] border border-blue-200">
-                      {activeStaff.shift?.split('(')[1]?.replace(')', '') || 'Staff'}
+                      {activeStaff.shift || 'Staff'}
                     </span>
                   </div>
                 </div>
@@ -261,30 +261,14 @@ export const StaffPortalApp: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Officer switcher */}
-                <div className="px-4 pb-2">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Switch Officer</div>
-                  <select
-                    value={activeStaff.staffId}
-                    onChange={e => { switchStaff(Number(e.target.value)); setProfileOpen(false); }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[12px] text-slate-700 font-medium outline-none focus:border-[#2259c2] cursor-pointer"
-                  >
-                    {data.staffList.map(s => (
-                      <option key={s.staffId} value={s.staffId}>
-                        {s.name} — {s.designation.split(' ')[0]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
                 {/* Actions */}
                 <div className="px-4 py-2 border-t border-slate-100 flex items-center gap-2">
                   <button
-                    onClick={() => { if (window.confirm('Reset all demo staff data?')) { resetData(); setProfileOpen(false); } }}
+                    onClick={() => { refreshAssignmentAndChart(); setProfileOpen(false); }}
                     className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    Reset Data
+                    Refresh from server
                   </button>
                   <button
                     onClick={handleLogout}
@@ -305,7 +289,7 @@ export const StaffPortalApp: React.FC = () => {
         ref={navRef}
         className="bg-white border-b border-[#e5e9f1] px-4 sm:px-8 relative z-50 shadow-sm"
       >
-        <div className="flex items-center gap-1 sm:gap-2 py-1.5">
+        <div className="flex flex-wrap items-center gap-1 sm:gap-2 py-1.5">
           {/* Overview — direct tab (no dropdown) */}
           <button
             onClick={() => { setActiveTab('overview'); setActiveDropdown(null); }}
@@ -328,7 +312,7 @@ export const StaffPortalApp: React.FC = () => {
             const secBadge = sec.items.reduce((acc, item) => acc + (item.badgeKey ? badges[item.badgeKey] || 0 : 0), 0);
 
             return (
-              <div key={sec.title} className="relative">
+              <div key={sec.title} className="sm:relative">
                 <button
                   type="button"
                   onClick={() => setActiveDropdown(isOpen ? null : sec.title)}
@@ -358,7 +342,7 @@ export const StaffPortalApp: React.FC = () => {
                 {/* Dropdown Panel — matches admin style exactly */}
                 {isOpen && (
                   <div
-                    className="absolute left-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-[#e2e8f0] p-2.5"
+                    className="absolute left-4 right-4 top-full mt-2 sm:left-0 sm:right-auto sm:w-96 bg-white rounded-2xl border border-[#e2e8f0] p-2.5"
                     style={{ zIndex: 9999, boxShadow: '0 24px 70px rgba(15,23,42,0.20)' }}
                   >
                     {/* Dropdown header */}

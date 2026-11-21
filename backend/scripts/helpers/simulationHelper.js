@@ -206,6 +206,19 @@ async function fillScheduleBookings(pool, scheduleId, fillLevel, passengerPool, 
   const fromStopId = stops[0].stop_id;
   const toStopId = stops[stops.length - 1].stop_id;
 
+  // sp_create_booking refuses a train that has already left its boarding station (JOURNEY_PAST).
+  // Skip such runs here instead of failing on every booking attempt.
+  const [departedRows] = await pool.query(
+    `SELECT (TIMESTAMP(ts.journey_date, rs.departure_time) + INTERVAL rs.day_offset DAY) <= NOW() AS departed
+     FROM TRAIN_SCHEDULE ts
+     JOIN ROUTE_STOP rs ON rs.stop_id = ?
+     WHERE ts.schedule_id = ?`,
+    [fromStopId, scheduleId]
+  );
+  if (departedRows.length > 0 && Number(departedRows[0].departed) === 1) {
+    return { bookingsCount: 0, skipped: 'ALREADY_DEPARTED' };
+  }
+
   // Get inventories
   const [invs] = await pool.query(
     'SELECT class_id, total_seats, available_seats, rac_capacity, wl_capacity FROM SCHEDULE_CLASS_INVENTORY WHERE schedule_id = ? ORDER BY class_id ASC',
@@ -213,6 +226,8 @@ async function fillScheduleBookings(pool, scheduleId, fillLevel, passengerPool, 
   );
 
   let bookingsMade = 0;
+  let skipped = null;
+  const SKIP_CODES = ['JOURNEY_PAST', 'OUTSIDE_BOOKING_WINDOW', 'TRAIN_NOT_RUNNING', 'INVALID_STOPS'];
   let passIdx = Math.floor(Math.random() * passengerPool.length);
   let userIdx = Math.floor(Math.random() * userPool.length);
 
@@ -269,19 +284,45 @@ async function fillScheduleBookings(pool, scheduleId, fillLevel, passengerPool, 
         classBookingsMade++;
 
         // Insert matching PAYMENT record
-        const [maxP] = await pool.query('SELECT COALESCE(MAX(payment_id), 0) AS m FROM PAYMENT');
-        const nextPayId = maxP[0].m + 1;
+        // payment_id is AUTO_INCREMENT: the database picks the id
         await pool.query(
-          'INSERT INTO PAYMENT (payment_id, pnr, amount, method, status, gateway_payment_id, paid_at) VALUES (?, ?, ?, "UPI", "SUCCESS", ?, NOW())',
-          [nextPayId, output.pnr, output.total_fare || 0, `pay_sim_${output.pnr}`]
+          'INSERT INTO PAYMENT (pnr, amount, method, status, gateway_payment_id, paid_at) VALUES (?, ?, "UPI", "SUCCESS", ?, NOW())',
+          [output.pnr, output.total_fare || 0, `pay_sim_${output.pnr}`]
         );
       } else {
         keepBooking = false;
+        // The whole run cannot be booked right now (not just this class): stop and report it as skipped
+        if (output && SKIP_CODES.includes(output.error_code)) {
+          skipped = output.error_code;
+        }
       }
     }
+    if (skipped) break;
   }
 
-  return { bookingsCount: bookingsMade };
+  return skipped ? { bookingsCount: bookingsMade, skipped } : { bookingsCount: bookingsMade };
+}
+
+/**
+ * The simulator cancels straight in SQL (no Node gateway step), so the refunds it creates are PENDING.
+ * No real money moves for simulated payments: move those rows to PROCESSED through sp_set_refund_result
+ * (the only way a REFUND status changes) with the note SIMULATED_PAYMENT.
+ */
+async function markSimulatedRefundsProcessed(pool, pnr) {
+  const [rows] = await pool.query(
+    `SELECT r.refund_id
+     FROM REFUND r
+     JOIN CANCELLATION c ON c.cancel_id = r.cancel_id
+     WHERE c.pnr = ? AND r.status = 'PENDING'`,
+    [pnr]
+  );
+  for (const row of rows) {
+    await pool.query(
+      "CALL sp_set_refund_result(?, 'PROCESSED', NULL, 'SIMULATED_PAYMENT', @out_refund_status)",
+      [row.refund_id]
+    );
+  }
+  return rows.length;
 }
 
 /**
@@ -306,7 +347,11 @@ async function performRandomCancellations(pool, count = 5) {
         'CALL sp_cancel_passenger_ticket(?, NULL, "PASSENGER_REQUEST", 1, @out_charge, @out_refund, @out_status); SELECT @out_status AS status;',
         [row.pnr]
       );
-      cancelledCount++;
+      const statusRow = Array.isArray(res) ? res.find(r => Array.isArray(r) && r.length > 0 && r[0].status !== undefined) : null;
+      if (!statusRow || statusRow[0].status === 'CANCELLED') {
+        cancelledCount++;
+        await markSimulatedRefundsProcessed(pool, row.pnr);
+      }
     } catch (_) {}
   }
 
@@ -321,6 +366,7 @@ async function prepareDueCharts(pool) {
     SELECT schedule_id
     FROM TRAIN_SCHEDULE
     WHERE chart_prepared_at IS NULL
+      AND journey_date >= CURDATE()
       AND TIMESTAMP(journey_date, departure_time) <= NOW() + INTERVAL 8 HOUR
     ORDER BY schedule_id ASC
   `);

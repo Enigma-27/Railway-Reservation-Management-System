@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, Edit2, Trash2 } from 'lucide-react';
-import { API_CONFIG } from '../../config/api.config';
 import { platformService } from '../../services/platformService';
 import { stationService } from '../../services/stationService';
 import { Platform, Station } from '../../types/station';
@@ -229,24 +228,13 @@ export const PlatformsPage: React.FC = () => {
                 </option>
               ))}
             </select>
-            {API_CONFIG.USE_MOCK ? (
-              <button
-                onClick={handleOpenCreate}
-                className="btn-secondary"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Platform</span>
-              </button>
-            ) : (
-              <button
-                disabled
-                title="This feature is not available yet."
-                className="btn-secondary opacity-50 cursor-not-allowed"
-              >
-                <Plus className="w-4 h-4" />
-                <span>This feature is not available yet.</span>
-              </button>
-            )}
+            <button
+              onClick={handleOpenCreate}
+              className="btn-secondary"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Platform</span>
+            </button>
           </div>
         }
 
@@ -333,6 +321,9 @@ export const PlatformsPage: React.FC = () => {
               className="form-input"
               placeholder="Waiting Hall, Water Dispenser, Escalator, Wi-Fi"
             />
+            <p className="text-meta mt-1">
+              The database stores only the station and the platform number. Status and facilities are not saved.
+            </p>
           </div>
 
           <div className="form-section-divider flex items-center justify-end gap-2.5">

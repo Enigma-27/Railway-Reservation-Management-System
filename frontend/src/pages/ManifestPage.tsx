@@ -13,8 +13,8 @@ export const ManifestPage: React.FC<ManifestPageProps> = ({ onInspectPassenger }
   const [search, setSearch] = useState<string>('');
   const [pendingActionId, setPendingActionId] = useState<number | null>(null);
 
-  const trainId = activeStaff.assignedTrainId || 101;
-  let list = data.manifest.filter(m => m.trainId === trainId);
+  // The chart is the server's frozen snapshot for the run assigned to this officer
+  let list = data.manifest;
 
   if (selectedCoach !== 'ALL') {
     list = list.filter(m => m.coachNumber === selectedCoach);
@@ -25,12 +25,12 @@ export const ManifestPage: React.FC<ManifestPageProps> = ({ onInspectPassenger }
     list = list.filter(m =>
       m.name.toLowerCase().includes(q) ||
       m.pnr.includes(q) ||
-      (m.seatNumber && String(m.seatNumber).includes(q)) ||
-      m.idProofReference.toLowerCase().includes(q)
+      (m.seatNumber && String(m.seatNumber).includes(q))
     );
   }
 
-  const coachTabs = ['ALL', 'B1', 'B2', 'A1'];
+  // Coach tabs come from the coaches that really appear in the chart
+  const coachTabs = ['ALL', ...Array.from(new Set(data.manifest.map(m => m.coachNumber).filter((c): c is string => !!c))).sort()];
 
   return (
     <div className="space-y-5">
@@ -77,7 +77,7 @@ export const ManifestPage: React.FC<ManifestPageProps> = ({ onInspectPassenger }
         {chartStatus.error && (
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>Notice: {chartStatus.error}. Showing roster data.</span>
+            <span>Notice: {chartStatus.error}. There is no chart to show yet.</span>
           </div>
         )}
 
@@ -89,7 +89,7 @@ export const ManifestPage: React.FC<ManifestPageProps> = ({ onInspectPassenger }
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by passenger name, PNR, seat number, or ID reference..."
+              placeholder="Search by passenger name, PNR or seat number..."
               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-800 outline-none focus:border-orange-500 focus:bg-white transition-all placeholder:text-slate-400"
             />
           </div>
@@ -105,7 +105,7 @@ export const ManifestPage: React.FC<ManifestPageProps> = ({ onInspectPassenger }
                 <th className="py-3 px-4">PNR</th>
                 <th className="py-3 px-4">Sector</th>
                 <th className="py-3 px-4">Booking</th>
-                <th className="py-3 px-4">Official ID</th>
+                <th className="py-3 px-4">Class</th>
                 <th className="py-3 px-4">Boarding</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -119,8 +119,8 @@ export const ManifestPage: React.FC<ManifestPageProps> = ({ onInspectPassenger }
                 </tr>
               ) : (
                 list.map(p => {
-                  const bStation = data.stations.find(s => s.stationId === p.boardingStationId)?.stationCode || 'BCT';
-                  const dStation = data.stations.find(s => s.stationId === p.destinationStationId)?.stationCode || 'NDLS';
+                  const bStation = data.stations.find(s => s.stationId === p.boardingStationId)?.stationCode || '-';
+                  const dStation = data.stations.find(s => s.stationId === p.destinationStationId)?.stationCode || '-';
 
                   return (
                     <tr key={p.manifestId} className="hover:bg-slate-50/80 transition-colors">
@@ -138,21 +138,19 @@ export const ManifestPage: React.FC<ManifestPageProps> = ({ onInspectPassenger }
                       </td>
                       <td className="py-3 px-4">
                         <div className="font-bold text-slate-900">{p.name}</div>
-                        <div className="text-[10px] text-slate-500">{p.age}y / {p.gender} • {p.quota}</div>
+                        <div className="text-[10px] text-slate-500">
+                          {p.age ?? '-'}y / {p.gender ?? '-'} • {p.quota ?? '-'}
+                        </div>
                       </td>
                       <td className="py-3 px-4 font-mono font-semibold text-slate-800">{p.pnr}</td>
                       <td className="py-3 px-4 font-medium text-slate-700">
                         {bStation} ➔ {dStation}
                       </td>
                       <td className="py-3 px-4">
-                        <StatusBadge
-                          status={p.bookingStatus === 'RAC' ? `RAC-${p.racRank || 1}` : p.bookingStatus === 'WAITING_LIST' ? `WL-${p.wlRank || 1}` : p.bookingStatus}
-                          size="sm"
-                        />
+                        <StatusBadge status={p.bookingStatus} size="sm" />
                       </td>
                       <td className="py-3 px-4">
-                        <div className="text-[10px] font-bold text-blue-700">{p.idProofType}</div>
-                        <div className="font-mono text-[10px] text-slate-500">{p.idProofReference}</div>
+                        <div className="text-[11px] font-bold text-blue-700">{p.classType ?? '-'}</div>
                       </td>
                       <td className="py-3 px-4">
                         <StatusBadge status={p.boardingStatus} size="sm" />

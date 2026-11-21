@@ -1,0 +1,332 @@
+[
+ {
+  "page": "00-landing",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "01-train-info",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "10-pax-home",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "10-pax-search",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "10-pax-bookings",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "10-pax-pnr",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "10-pax-profile",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "10-pax-passengers",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "10-pax-tdr",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "10-pax-grievances",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "10-pax-alerts",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "19-pax-tdr-modal",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "19-pax-add-passenger-modal",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "02-train-info-signed-in",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "20-staff-1-Duty_Dashboard",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "20-staff-2-Passenger_Chart",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "20-staff-3-PNR_ID_Scanner",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "20-staff-4-Vacancies_RAC",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "20-staff-5-On_Spot_Penalties",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "20-staff-6-Delays_Platform",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "20-staff-7-Crowd_Hygiene",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "20-staff-8-Emergency_SOS",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0
+ },
+ {
+  "page": "30-admin-dashboard",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin"
+ },
+ {
+  "page": "30-admin-users",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/users"
+ },
+ {
+  "page": "30-admin-staff",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/staff"
+ },
+ {
+  "page": "30-admin-trains",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/trains"
+ },
+ {
+  "page": "30-admin-routes",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/routes"
+ },
+ {
+  "page": "30-admin-schedules",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/schedules"
+ },
+ {
+  "page": "30-admin-stations",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/stations"
+ },
+ {
+  "page": "30-admin-platforms",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/platforms"
+ },
+ {
+  "page": "30-admin-coaches",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/coaches"
+ },
+ {
+  "page": "30-admin-seats",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/seats"
+ },
+ {
+  "page": "30-admin-fares",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/fares"
+ },
+ {
+  "page": "30-admin-quotas",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/quotas"
+ },
+ {
+  "page": "30-admin-bookings",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/bookings"
+ },
+ {
+  "page": "30-admin-tdr",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/tdr"
+ },
+ {
+  "page": "30-admin-fines",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/fines"
+ },
+ {
+  "page": "30-admin-refund-transactions",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/refund-transactions"
+ },
+ {
+  "page": "30-admin-incidents",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/incidents"
+ },
+ {
+  "page": "30-admin-grievances",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/grievances"
+ },
+ {
+  "page": "30-admin-reports",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/reports"
+ },
+ {
+  "page": "30-admin-audit-logs",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/audit-logs"
+ },
+ {
+  "page": "30-admin-notifications",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/notifications"
+ },
+ {
+  "page": "30-admin-settings",
+  "violations": 0,
+  "minRatio": null,
+  "worst": [],
+  "overflowX": 0,
+  "landed": "/admin/settings"
+ }
+]

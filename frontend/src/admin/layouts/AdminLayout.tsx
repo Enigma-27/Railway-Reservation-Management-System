@@ -123,8 +123,10 @@ export const AdminLayout: React.FC = () => {
         { label: 'Reservations & PNR', path: ADMIN_ROUTES.BOOKINGS, description: 'PNR ledger, tickets and statuses', icon: Ticket },
         { label: 'TDR Adjudication', path: ADMIN_ROUTES.TDR, description: 'Ticket deposit refunds and claims', icon: FileCheck2 },
         { label: 'Fines & Penalties', path: ADMIN_ROUTES.FINES, description: 'TC on-spot fines and unauthorized travel', icon: DollarSign },
+        { label: 'Refund Transactions', path: ADMIN_ROUTES.REFUND_TRANSACTIONS, description: 'Refund money: pending, processed, failed and retry', icon: FileCheck2 },
         { label: 'Incidents & SOS', path: ADMIN_ROUTES.INCIDENTS, description: 'Safety dispatches and operational alerts', icon: AlertOctagon },
         { label: 'Grievances', path: ADMIN_ROUTES.GRIEVANCES, description: 'Passenger support and rail madad complaints', icon: LifeBuoy },
+        { label: 'Contact Messages', path: ADMIN_ROUTES.CONTACT_MESSAGES, description: 'Messages from the Contact Us button: read, mark done', icon: LifeBuoy },
       ],
     },
     {
@@ -145,7 +147,7 @@ export const AdminLayout: React.FC = () => {
 
   const handleLogout = () => {
     logout();
-    navigate(ADMIN_ROUTES.LOGIN);
+    navigate('/');
   };
 
   // Find which category and item is currently active based on current path
@@ -176,7 +178,7 @@ export const AdminLayout: React.FC = () => {
             </div>
             <div className="leading-tight">
               <div className="font-bold text-sm sm:text-[15px] tracking-tight text-[#16243b]">
-                Railway Reservation
+                RRMS
               </div>
               <div className="text-[12px] font-semibold text-[#2259c2] mt-0.5">
                 Admin Console
@@ -199,19 +201,12 @@ export const AdminLayout: React.FC = () => {
 
         {/* Right: Cross-portal Navigation, Notifications & Profile */}
         <div className="flex items-center gap-3 sm:gap-4">
-          {/* Sister portals */}
+          {/* One session = one role, so there are no links to the other portals. Home is the landing page. */}
           <Link
-            to="/passenger"
-            className="hidden lg:flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[#2259c2] bg-blue-50 hover:bg-blue-100 transition-colors"
+            to="/"
+            className="hidden md:flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[#2259c2] bg-blue-50 hover:bg-blue-100 transition-colors"
           >
-            <span>Passenger Portal</span>
-          </Link>
-          <Link
-            to="/staff"
-            className="hidden lg:flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 transition-colors"
-          >
-            <Train className="w-4 h-4 text-orange-600" />
-            <span>Staff Terminal</span>
+            <span>Home</span>
           </Link>
 
           {/* Notification Bell */}

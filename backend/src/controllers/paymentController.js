@@ -1,27 +1,26 @@
 const crypto = require('crypto');
-const Razorpay = require('razorpay');
 const pool = require('../config/mysql');
 const config = require('../config/env');
-const { getMongoDb } = require('../config/mongodb');
+const { safeMongoInsert } = require('../config/mongodb');
 const AppError = require('../utils/appError');
 const { releaseExpiredHolds } = require('../services/holdCleanupService');
-const { toPaise, processGatewayRefund } = require('../services/gatewayRefundService');
+const { toPaise, getRazorpayClient } = require('../services/gatewayRefundService');
+const {
+  confirmOrderPayment,
+  reconcileOrder,
+  reconcilePnr,
+  verifyWebhookSignature,
+  handleWebhookEvent
+} = require('../services/paymentOrderService');
 const { createNotification } = require('../services/notificationService');
 const { logActivity } = require('../services/activityLogService');
 
 /**
- * Initialize Razorpay instance with key and secret
- */
-function getRazorpayClient() {
-  return new Razorpay({
-    key_id: config.RAZORPAY_KEY_ID,
-    key_secret: config.RAZORPAY_KEY_SECRET
-  });
-}
-
-/**
  * 4.3.1 Create Gateway Order
  * POST /api/payments/razorpay/order
+ *
+ * The order is saved in MySQL (PAYMENT_ORDER) right after Razorpay creates it. MongoDB gets an optional
+ * audit copy afterwards; a Mongo problem never fails order creation.
  */
 async function createOrder(req, res, next) {
   try {
@@ -71,31 +70,75 @@ async function createOrder(req, res, next) {
     // Convert total_fare from database to paise with exact integer math
     const amountInPaise = toPaise(booking.total_fare);
 
+    // Pressing Pay twice must not create a second order: reuse the open order of this booking (same amount).
+    // Before reusing it, ask Razorpay once whether it was already paid (then the ticket is finished here).
+    const [openOrders] = await pool.query(
+      `SELECT order_id FROM PAYMENT_ORDER
+        WHERE pnr = ? AND status = 'CREATED' AND amount_paise = ? ORDER BY created_at DESC LIMIT 1`,
+      [String(pnr), amountInPaise]
+    );
+    if (openOrders.length > 0) {
+      const open = openOrders[0];
+      let settled = null;
+      try { settled = await reconcileOrder(open.order_id); } catch (_) { settled = null; }
+      if (settled && settled.outcome === 'CONFIRMED') {
+        return res.status(200).json({
+          success: true,
+          data: { alreadyPaid: true, pnr: String(pnr), bookingStatus: settled.bookingStatus }
+        });
+      }
+      if (settled && settled.outcome === 'LATE') {
+        throw new AppError('HOLD_EXPIRED', 'The payment arrived after the seat hold expired. It is being refunded automatically.', 400);
+      }
+      return res.status(200).json({
+        success: true,
+        data: {
+          orderId: open.order_id,
+          amount: amountInPaise,
+          currency: 'INR',
+          keyId: config.RAZORPAY_KEY_ID,
+          pnr: String(pnr),
+          reused: true
+        }
+      });
+    }
+
     let order;
     try {
       const razorpay = getRazorpayClient();
-      const orderOptions = {
+      order = await razorpay.orders.create({
         amount: amountInPaise,
         currency: 'INR',
         receipt: String(pnr)
-      };
-      order = await razorpay.orders.create(orderOptions);
+      });
     } catch (gwErr) {
       throw new AppError('SERVICE_UNAVAILABLE', `Payment gateway unavailable: ${gwErr.message || 'Order creation failed'}`, 503);
     }
 
-    // Store full raw Razorpay reply plus pnr in MongoDB raw_gateway_replies
-    const db = getMongoDb();
-    if (db) {
-      await db.collection('raw_gateway_replies').insertOne({
-        pnr: String(pnr),
-        type: 'order_create',
-        orderId: order.id,
-        amount: amountInPaise,
-        reply: order,
-        createdAt: new Date()
-      });
+    // 1. MySQL FIRST: the order must be saved here, or a later payment cannot be matched to this booking
+    try {
+      await pool.query(
+        `INSERT INTO PAYMENT_ORDER (order_id, pnr, amount_paise, currency, status, created_at)
+         VALUES (?, ?, ?, 'INR', 'CREATED', NOW())`,
+        [order.id, String(pnr), amountInPaise]
+      );
+    } catch (dbErr) {
+      console.error(`[PAYMENT_ORDER] Razorpay order ${order.id} for PNR ${pnr} was created but could not be saved in MySQL:`, dbErr.message);
+      throw new AppError(
+        'INTERNAL_SERVER_ERROR',
+        `The payment order could not be saved (order ${order.id}). Please do not pay. Try again.`,
+        500
+      );
     }
+
+    // 2. MongoDB audit copy: best effort, never awaited, never fails the request
+    safeMongoInsert('raw_gateway_replies', {
+      pnr: String(pnr),
+      type: 'order_create',
+      orderId: order.id,
+      amount: amountInPaise,
+      reply: order
+    });
 
     // Do NOT insert into PAYMENT table
     return res.status(200).json({
@@ -115,8 +158,41 @@ async function createOrder(req, res, next) {
 }
 
 /**
+ * Build the passenger list for a success response
+ */
+async function loadPassengers(pnr) {
+  const [passengers] = await pool.query(
+    `SELECT pb.passenger_no, pb.name,
+            c.coach_code AS coachNumber,
+            s.seat_number AS seatNumber,
+            s.berth_type AS berthType,
+            r.status, r.queue_position
+     FROM PASSENGER_BOOKING pb
+     JOIN RESERVATION r ON pb.pnr = r.pnr AND pb.passenger_no = r.passenger_no
+     LEFT JOIN SEAT s ON r.seat_id = s.seat_id
+     LEFT JOIN COACH c ON s.coach_id = c.coach_id
+     WHERE pb.pnr = ?
+     ORDER BY pb.passenger_no ASC`,
+    [pnr]
+  );
+  return passengers.map(p => {
+    const item = {
+      passengerNo: p.passenger_no,
+      name: p.name,
+      coachNumber: p.coachNumber || null,
+      seatNumber: p.seatNumber || null,
+      berthType: p.berthType || null,
+      status: p.status
+    };
+    if (p.queue_position) item.queuePosition = p.queue_position;
+    return item;
+  });
+}
+
+/**
  * 4.3.2 Verify Gateway Payment Signature & Issue Ticket
  * POST /api/payments/razorpay/verify
+ * The order is read from MySQL (PAYMENT_ORDER), never from MongoDB.
  */
 async function verifyPayment(req, res, next) {
   try {
@@ -145,23 +221,16 @@ async function verifyPayment(req, res, next) {
       throw new AppError('FORBIDDEN', 'Access denied: you do not own this booking', 403);
     }
 
-    const db = getMongoDb();
-    const expectedAmount = toPaise(booking.total_fare);
-
-    // Look up saved order in MongoDB raw_gateway_replies
-    let savedOrder = null;
-    if (db) {
-      savedOrder = await db.collection('raw_gateway_replies').findOne({
-        pnr: String(pnr),
-        orderId: String(razorpayOrderId)
-      });
+    // The saved order must exist in MySQL for THIS PNR, and its amount must equal the booking fare in paise
+    const [orderRows] = await pool.query(
+      'SELECT * FROM PAYMENT_ORDER WHERE order_id = ? AND pnr = ?',
+      [String(razorpayOrderId), String(pnr)]
+    );
+    if (orderRows.length === 0) {
+      throw new AppError('BAD_REQUEST', 'Order not found for this PNR in payment records', 400);
     }
-
-    if (!savedOrder) {
-      throw new AppError('BAD_REQUEST', 'Order not found for this PNR in gateway records', 400);
-    }
-
-    if (Number(savedOrder.amount) !== expectedAmount) {
+    const order = orderRows[0];
+    if (Number(order.amount_paise) !== toPaise(booking.total_fare)) {
       throw new AppError('BAD_REQUEST', 'Order amount mismatch', 400);
     }
 
@@ -182,66 +251,15 @@ async function verifyPayment(req, res, next) {
       throw new AppError('BAD_REQUEST', 'Invalid payment signature', 400);
     }
 
-    // Call stored procedure sp_confirm_payment with p_manage_tx = 1
-    const p_manage_tx = 1;
-    const [confirmResult] = await pool.query(
-      `CALL sp_confirm_payment(?, ?, 'UPI', ?, ?, @out_status, @out_payment_id);
-       SELECT @out_status AS status, @out_payment_id AS payment_id;`,
-      [pnr, booking.total_fare, razorpayPaymentId, p_manage_tx]
-    );
+    // The same confirm path as reconcile and webhook (sp_confirm_payment is the only code that confirms)
+    const confirmed = await confirmOrderPayment(order, razorpayPaymentId);
 
-    let output = null;
-    if (Array.isArray(confirmResult)) {
-      for (const r of confirmResult) {
-        if (Array.isArray(r) && r.length > 0 && r[0].status !== undefined) {
-          output = r[0];
-          break;
-        }
-      }
-    }
-
-    if (!output) {
-      throw new AppError('INTERNAL_SERVER_ERROR', 'Failed to confirm payment via procedure', 500);
-    }
-
-    const outStatus = output.status;
-    const outPaymentId = output.payment_id;
-
-    // Handle LATE payment status
-    if (outStatus === 'LATE') {
-      // Query REFUND record from MySQL
-      const [refundRows] = await pool.query(
-        `SELECT r.refund_id, r.amount, r.reason, r.status
-         FROM REFUND r
-         JOIN PAYMENT p ON r.payment_id = p.payment_id
-         WHERE p.gateway_payment_id = ?
-         LIMIT 1`,
-        [razorpayPaymentId]
-      );
-      const refundRow = refundRows[0] || null;
-      const lateRefundIds = refundRow ? [refundRow.refund_id] : [];
-
-      await processGatewayRefund({
-        pnr,
-        paymentMethod: 'UPI',
-        gatewayPaymentId: razorpayPaymentId,
-        amountInRupees: booking.total_fare,
-        refundIds: lateRefundIds,
-        reason: 'PAYMENT_AFTER_EXPIRY'
+    // Handle LATE payment: HTTP 200 with success:false and HOLD_EXPIRED, as before
+    if (confirmed.late) {
+      safeMongoInsert('raw_gateway_replies', {
+        pnr: String(pnr), type: 'verify_late', paymentId: confirmed.paymentId,
+        gatewayPaymentId: String(razorpayPaymentId), status: 'LATE'
       });
-
-      if (db) {
-        await db.collection('raw_gateway_replies').insertOne({
-          pnr: String(pnr),
-          type: 'verify_late',
-          paymentId: outPaymentId,
-          gatewayPaymentId: String(razorpayPaymentId),
-          status: 'LATE',
-          createdAt: new Date()
-        });
-      }
-
-      // Contract 4.3.2 response for late payment (200 OK)
       return res.status(200).json({
         success: false,
         error: {
@@ -250,30 +268,19 @@ async function verifyPayment(req, res, next) {
         },
         data: {
           bookingStatus: 'FAILED',
-          refund: {
-            refundId: refundRow ? refundRow.refund_id : null,
-            amount: Number(booking.total_fare),
-            reason: refundRow ? refundRow.reason : 'PAYMENT_AFTER_EXPIRY',
-            status: refundRow ? refundRow.status : 'PROCESSED',
-            gatewayPaymentId: String(razorpayPaymentId)
-          }
+          refund: confirmed.refund
         }
       });
     }
 
     // Normal payment success (CONFIRMED, RAC, WAITING_LIST)
-    if (db) {
-      await db.collection('raw_gateway_replies').insertOne({
-        pnr: String(pnr),
-        type: 'verify_success',
-        paymentId: outPaymentId,
-        gatewayPaymentId: String(razorpayPaymentId),
-        status: outStatus,
-        createdAt: new Date()
-      });
-    }
+    const outStatus = confirmed.bookingStatus;
+    const outPaymentId = confirmed.paymentId;
+    safeMongoInsert('raw_gateway_replies', {
+      pnr: String(pnr), type: 'verify_success', paymentId: outPaymentId,
+      gatewayPaymentId: String(razorpayPaymentId), status: outStatus
+    });
 
-    // Retrieve PAYMENT record
     const [paymentRows] = await pool.query(
       'SELECT payment_id, pnr, amount, method, status, gateway_payment_id, paid_at FROM PAYMENT WHERE payment_id = ?',
       [outPaymentId]
@@ -297,11 +304,7 @@ async function verifyPayment(req, res, next) {
       action: 'PAYMENT',
       tableName: 'PAYMENT',
       recordId: String(outPaymentId),
-      newValue: {
-        pnr: String(pnr),
-        amount: Number(booking.total_fare),
-        status: paymentRecord.status
-      }
+      newValue: { pnr: String(pnr), amount: Number(booking.total_fare), status: paymentRecord.status }
     });
 
     logActivity({
@@ -309,27 +312,8 @@ async function verifyPayment(req, res, next) {
       action: 'BOOKING',
       tableName: 'BOOKING',
       recordId: String(pnr),
-      newValue: {
-        pnr: String(pnr),
-        status: outStatus
-      }
+      newValue: { pnr: String(pnr), status: outStatus }
     });
-
-    // Retrieve passenger reservation allotment
-    const [passengers] = await pool.query(
-      `SELECT pb.passenger_no, pb.name,
-              c.coach_code AS coachNumber,
-              s.seat_number AS seatNumber,
-              s.berth_type AS berthType,
-              r.status, r.queue_position
-       FROM PASSENGER_BOOKING pb
-       JOIN RESERVATION r ON pb.pnr = r.pnr AND pb.passenger_no = r.passenger_no
-       LEFT JOIN SEAT s ON r.seat_id = s.seat_id
-       LEFT JOIN COACH c ON s.coach_id = c.coach_id
-       WHERE pb.pnr = ?
-       ORDER BY pb.passenger_no ASC`,
-      [pnr]
-    );
 
     return res.status(200).json({
       success: true,
@@ -340,20 +324,7 @@ async function verifyPayment(req, res, next) {
         gatewayPaymentId: String(razorpayPaymentId),
         paidAt,
         bookingStatus: outStatus,
-        passengers: passengers.map(p => {
-          const item = {
-            passengerNo: p.passenger_no,
-            name: p.name,
-            coachNumber: p.coachNumber || null,
-            seatNumber: p.seatNumber || null,
-            berthType: p.berthType || null,
-            status: p.status
-          };
-          if (p.queue_position) {
-            item.queuePosition = p.queue_position;
-          }
-          return item;
-        })
+        passengers: await loadPassengers(pnr)
       }
     });
 
@@ -362,7 +333,118 @@ async function verifyPayment(req, res, next) {
   }
 }
 
+// One reconcile call per PNR every 10 seconds (in memory)
+const RECONCILE_MIN_GAP_MS = 10000;
+const lastReconcileByPnr = new Map();
+
+/**
+ * POST /api/payments/razorpay/reconcile  { pnr }
+ * PASSENGER owner only. Asks Razorpay about every CREATED order of the PNR and finishes the ones that were paid
+ * (confirmed ticket inside the hold, automatic refund after it). Returns the booking status.
+ */
+async function reconcilePayment(req, res, next) {
+  try {
+    const userId = req.user.user_id || req.user.userId;
+    const { pnr } = req.body;
+    if (!pnr) {
+      throw new AppError('VALIDATION_ERROR', 'PNR is required', 400);
+    }
+
+    const [bookingRows] = await pool.query('SELECT pnr, user_id, status FROM BOOKING WHERE pnr = ?', [String(pnr)]);
+    if (bookingRows.length === 0) {
+      throw new AppError('NOT_FOUND', 'Booking not found', 404);
+    }
+    if (Number(bookingRows[0].user_id) !== Number(userId)) {
+      throw new AppError('FORBIDDEN', 'Access denied: you do not own this booking', 403);
+    }
+
+    const now = Date.now();
+    const last = lastReconcileByPnr.get(String(pnr)) || 0;
+    if (now - last < RECONCILE_MIN_GAP_MS) {
+      throw new AppError('TOO_MANY_REQUESTS', 'Please wait a few seconds before checking this payment again.', 429);
+    }
+    lastReconcileByPnr.set(String(pnr), now);
+    if (lastReconcileByPnr.size > 5000) {
+      for (const [k, t] of lastReconcileByPnr) {
+        if (now - t > RECONCILE_MIN_GAP_MS) lastReconcileByPnr.delete(k);
+      }
+    }
+
+    const results = await reconcilePnr(pnr);
+
+    const [[fresh]] = await pool.query('SELECT status FROM BOOKING WHERE pnr = ?', [String(pnr)]);
+    const [orderRows] = await pool.query('SELECT status FROM PAYMENT_ORDER WHERE pnr = ?', [String(pnr)]);
+    const hasPaid = orderRows.some(o => o.status === 'PAID');
+    const hasLate = orderRows.some(o => o.status === 'LATE_PAID');
+    const lateResult = results.find(r => r.outcome === 'LATE');
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        pnr: String(pnr),
+        bookingStatus: fresh ? fresh.status : bookingRows[0].status,
+        paymentReceived: hasPaid || hasLate,
+        paidAfterHoldExpired: hasLate,
+        ordersChecked: results.length,
+        ...(lateResult && lateResult.result && lateResult.result.refund ? { refund: lateResult.result.refund } : {})
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+let webhookSecretWarned = false;
+
+/**
+ * POST /api/payments/razorpay/webhook
+ * Mounted in app.js BEFORE express.json() with express.raw, because the signature is over the RAW body.
+ * - empty RAZORPAY_WEBHOOK_SECRET -> 503 (one warning in the log)
+ * - bad signature -> 400
+ * - good signature -> 200 (even for unknown orders); repeated deliveries change nothing.
+ */
+async function razorpayWebhook(req, res) {
+  const secret = config.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) {
+    if (!webhookSecretWarned) {
+      console.warn('[WEBHOOK] RAZORPAY_WEBHOOK_SECRET is not set: webhook requests are refused with 503.');
+      webhookSecretWarned = true;
+    }
+    return res.status(503).json({ success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Webhook is not configured.' } });
+  }
+
+  const rawBody = req.body;
+  const signature = req.get('X-Razorpay-Signature');
+  if (!verifyWebhookSignature(rawBody, signature, secret)) {
+    return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid webhook signature.' } });
+  }
+
+  let event = null;
+  try {
+    event = JSON.parse(rawBody.toString('utf8'));
+  } catch (_) {
+    // A valid signature with an unreadable body: nothing to do, answer 200 so Razorpay does not retry forever
+    return res.status(200).json({ success: true, data: { handled: false, reason: 'UNREADABLE_BODY' } });
+  }
+
+  // Do the work, but never keep Razorpay waiting long: answer after 4 seconds even if still working.
+  const work = handleWebhookEvent(event)
+    .catch(err => {
+      console.error(`[WEBHOOK] ${event && event.event} failed:`, err.message);
+      return { handled: false, reason: 'ERROR' };
+    });
+  let timer = null;
+  const result = await Promise.race([
+    work,
+    new Promise(resolve => { timer = setTimeout(() => resolve({ handled: true, reason: 'ACCEPTED' }), 4000); })
+  ]);
+  clearTimeout(timer);
+  return res.status(200).json({ success: true, data: { handled: Boolean(result && result.handled) } });
+}
+
 module.exports = {
   createOrder,
-  verifyPayment
+  verifyPayment,
+  reconcilePayment,
+  razorpayWebhook
 };

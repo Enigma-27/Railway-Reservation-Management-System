@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useStaff } from '../context/StaffContext';
-import { StatCard } from '../components/StatCard';
 import { StatusBadge } from '../components/StatusBadge';
-import { FileText, Printer, DollarSign, AlertCircle } from 'lucide-react';
+import { FileText, Printer } from 'lucide-react';
+import { Fine } from '../types';
 import { formatIndiaDateTime, formatCurrency } from '../utils/formatters';
 
 interface FinesPageProps {
@@ -11,41 +11,59 @@ interface FinesPageProps {
   prefillReason?: string;
 }
 
+// The four reasons the database accepts (FINE.reason)
+const FINE_REASONS: Array<{ value: string; label: string }> = [
+  { value: 'TICKETLESS_TRAVEL', label: 'Ticketless Travel' },
+  { value: 'UNAUTHORIZED_CLASS', label: 'Travelling in Higher Class without Upgrade' },
+  { value: 'UNBOOKED_LUGGAGE', label: 'Unbooked / Excess Luggage' },
+  { value: 'SMOKING_NUISANCE', label: 'Smoking / Public Nuisance' },
+];
+
+function normalizeReason(reason: string): string {
+  if (reason === 'TRAVELLING_IN_HIGHER_CLASS_WITHOUT_UPGRADE') return 'UNAUTHORIZED_CLASS';
+  return FINE_REASONS.some(r => r.value === reason) ? reason : 'TICKETLESS_TRAVEL';
+}
+
 export const FinesPage: React.FC<FinesPageProps> = ({
   prefillName = '',
   prefillIdRef = '',
   prefillReason = 'TICKETLESS_TRAVEL'
 }) => {
-  const { data, activeStaff, issueFine, setSelectedReceiptFine } = useStaff();
+  const { activeStaff, issueFine, setSelectedReceiptFine } = useStaff();
 
   const [passengerName, setPassengerName] = useState(prefillName);
   const [idProofReference, setIdProofReference] = useState(prefillIdRef);
-  const [reason, setReason] = useState(prefillReason);
-  const [amount, setAmount] = useState<number>(550);
+  const [reason, setReason] = useState(normalizeReason(prefillReason));
+  const [amount, setAmount] = useState<string>('');
   const [paymentStatus, setPaymentStatus] = useState<'PAID' | 'UNPAID'>('PAID');
   const [submitting, setSubmitting] = useState(false);
+  // The challan just saved on the server (the server has no list route for staff, so only this one is shown)
+  const [lastFine, setLastFine] = useState<Fine | null>(null);
 
-  const totalCollected = data.fines.reduce((acc, f) => acc + (f.paymentStatus === 'PAID' ? Number(f.amount) : 0), 0);
-  const totalUnpaid = data.fines.reduce((acc, f) => acc + (f.paymentStatus === 'UNPAID' ? Number(f.amount) : 0), 0);
+  const hasRun = Boolean(activeStaff.assignedTrainId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!passengerName.trim() || !idProofReference.trim() || submitting) return;
+    const numericAmount = Number(amount);
+    if (!passengerName.trim() || !idProofReference.trim() || !(numericAmount > 0) || !activeStaff.assignedTrainId || submitting) return;
 
     setSubmitting(true);
     try {
-      await issueFine({
+      const fine = await issueFine({
         staffId: activeStaff.staffId,
-        trainId: activeStaff.assignedTrainId || 101,
+        trainId: activeStaff.assignedTrainId,
         passengerName: passengerName.trim(),
         idProofReference: idProofReference.trim(),
         reason,
-        amount,
+        amount: numericAmount,
         paymentStatus
       });
-
+      setLastFine(fine);
       setPassengerName('');
       setIdProofReference('');
+      setAmount('');
+    } catch {
+      // The error message was already shown; the form keeps what was typed
     } finally {
       setSubmitting(false);
     }
@@ -53,25 +71,6 @@ export const FinesPage: React.FC<FinesPageProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Financial Metrics - Matching Admin StatCards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <StatCard
-          title="Total Penalty Fines Collected"
-          value={formatCurrency(totalCollected)}
-          subtitle="Settled on-spot via Cash / UPI"
-          icon={DollarSign}
-          color="emerald"
-        />
-
-        <StatCard
-          title="Unsettled / Pending Challans"
-          value={formatCurrency(totalUnpaid)}
-          subtitle="Issued for recovery at destination"
-          icon={AlertCircle}
-          color="rose"
-        />
-      </div>
-
       {/* Issue Fine Form */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
         <h3 className="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
@@ -79,8 +78,14 @@ export const FinesPage: React.FC<FinesPageProps> = ({
           <span>Issue On-Spot Penalty Challan</span>
         </h3>
         <p className="text-xs text-slate-500 mb-5">
-          Enter passenger identification and violation details to generate an official digital penalty receipt.
+          Enter passenger identification and violation details. The challan is saved on the server and a receipt is shown only after the server accepts it.
         </p>
+
+        {!hasRun && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs">
+            No train run is assigned to you, so a penalty cannot be issued.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -112,17 +117,12 @@ export const FinesPage: React.FC<FinesPageProps> = ({
               <label className="text-xs font-semibold text-slate-700 block mb-1">Violation Category *</label>
               <select
                 value={reason}
-                onChange={(e) => {
-                  setReason(e.target.value);
-                  setAmount(e.target.value === 'TICKETLESS_TRAVEL' ? 550 : 300);
-                }}
+                onChange={(e) => setReason(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-orange-500 focus:bg-white cursor-pointer"
               >
-                <option value="TICKETLESS_TRAVEL">Ticketless Travel (Section 138)</option>
-                <option value="TRAVELLING_IN_HIGHER_CLASS_WITHOUT_UPGRADE">Travelling in Higher Class without Upgrade</option>
-                <option value="UNBOOKED_EXCESS_LUGGAGE">Unbooked / Excess Luggage</option>
-                <option value="SMOKING_NUISANCE">Smoking / Public Nuisance</option>
-                <option value="IRREGULAR_TICKET">Irregular / Expired Ticket</option>
+                {FINE_REASONS.map(r => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
               </select>
             </div>
 
@@ -131,10 +131,11 @@ export const FinesPage: React.FC<FinesPageProps> = ({
               <input
                 type="number"
                 required
-                min={50}
-                step={10}
+                min={1}
+                step={1}
                 value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="Amount as per the rule book"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono outline-none focus:border-orange-500 focus:bg-white transition-all"
               />
             </div>
@@ -155,50 +156,47 @@ export const FinesPage: React.FC<FinesPageProps> = ({
           <div className="flex justify-end pt-2">
             <button
               type="submit"
-              disabled={submitting}
-              className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 transition-all"
+              disabled={submitting || !hasRun}
+              className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-2 transition-all"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>{submitting ? 'Issuing Official Challan...' : 'Issue Official Challan'}</span>
+              <span>{submitting ? 'Saving Challan...' : 'Issue Official Challan'}</span>
             </button>
           </div>
         </form>
       </div>
 
-      {/* Fine Log Table */}
+      {/* Last challan saved on the server */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-        <h3 className="text-base font-bold text-slate-900 mb-4">Issued Penalty Records (Duty Log)</h3>
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
-              <tr>
-                <th className="py-3 px-4">Receipt No.</th>
-                <th className="py-3 px-4">Passenger</th>
-                <th className="py-3 px-4">ID Reference</th>
-                <th className="py-3 px-4">Offense</th>
-                <th className="py-3 px-4">Amount</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Issued Timestamp</th>
-                <th className="py-3 px-4 text-right">Receipt</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {data.fines.map(f => (
-                <tr key={f.fineId} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-3 px-4 font-mono font-bold text-orange-600">{f.receiptNumber}</td>
-                  <td className="py-3 px-4 font-semibold text-slate-800">{f.passengerName}</td>
-                  <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">{f.idProofReference}</td>
-                  <td className="py-3 px-4 text-slate-700">{f.reason.replace(/_/g, ' ')}</td>
-                  <td className="py-3 px-4 font-mono font-bold text-slate-900">{formatCurrency(f.amount)}</td>
-                  <td className="py-3 px-4">
-                    <StatusBadge status={f.paymentStatus} size="sm" />
-                  </td>
-                  <td className="py-3 px-4 text-slate-500 text-[11px]">
-                    {formatIndiaDateTime(f.issuedAt)}
-                  </td>
+        <h3 className="text-base font-bold text-slate-900 mb-1">Last Challan Saved</h3>
+        <p className="text-xs text-slate-500 mb-4">
+          The server does not give officers a list of past penalties, so only the challan you just issued is shown here.
+        </p>
+        {lastFine ? (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">Receipt No.</th>
+                  <th className="py-3 px-4">Passenger</th>
+                  <th className="py-3 px-4">Offense</th>
+                  <th className="py-3 px-4">Amount</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Saved At</th>
+                  <th className="py-3 px-4 text-right">Receipt</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-3 px-4 font-mono font-bold text-orange-600">{lastFine.receiptNumber}</td>
+                  <td className="py-3 px-4 font-semibold text-slate-800">{lastFine.passengerName}</td>
+                  <td className="py-3 px-4 text-slate-700">{lastFine.reason.replace(/_/g, ' ')}</td>
+                  <td className="py-3 px-4 font-mono font-bold text-slate-900">{formatCurrency(lastFine.amount)}</td>
+                  <td className="py-3 px-4"><StatusBadge status={lastFine.paymentStatus} size="sm" /></td>
+                  <td className="py-3 px-4 text-slate-500 text-[11px]">{formatIndiaDateTime(lastFine.issuedAt)}</td>
                   <td className="py-3 px-4 text-right">
                     <button
-                      onClick={() => setSelectedReceiptFine(f)}
+                      onClick={() => setSelectedReceiptFine(lastFine)}
                       className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold ml-auto flex items-center gap-1.5 transition-all"
                     >
                       <Printer className="w-3 h-3 text-slate-500" />
@@ -206,10 +204,12 @@ export const FinesPage: React.FC<FinesPageProps> = ({
                     </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="py-6 text-center text-xs text-slate-400">No challan issued in this session yet.</div>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 const pool = require('../config/mysql');
+const { expireAbandonedOrders } = require('./paymentOrderService');
 
 let timer = null;
 
@@ -21,6 +22,8 @@ async function releaseExpiredHolds() {
     }
     if (count > 0) {
       console.log(`Released holds: ${count}`);
+      // The orders of the released bookings are abandoned: close them (in the background, never blocks a request)
+      expireAbandonedOrders().catch((e) => console.error('Error closing abandoned payment orders:', e.message));
     }
     return count;
   } catch (err) {
@@ -34,7 +37,11 @@ async function releaseExpiredHolds() {
  */
 function startCleanupTimer(intervalMs = 60000) {
   if (timer) return timer;
-  timer = setInterval(releaseExpiredHolds, intervalMs);
+  timer = setInterval(async () => {
+    await releaseExpiredHolds();
+    // Orders left CREATED on a booking that is no longer waiting for payment (for example a second order)
+    expireAbandonedOrders().catch((e) => console.error('Error closing abandoned payment orders:', e.message));
+  }, intervalMs);
   return timer;
 }
 

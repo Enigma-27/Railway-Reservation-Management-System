@@ -368,6 +368,6 @@ The Admin Dashboard provides full operational oversight and Master Data Manageme
 ## 10. Scope Boundaries (Strict Exclusions)
 
 To ensure clarity for all development teams:
-- ❌ **Food Ordering / Pantry Services**: Strictly omitted from all dashboards, data models, and API endpoints per project decisions (BR-1, section 16 item 13).
+- ❌ **Food Ordering / Pantry Services**: Strictly omitted from all dashboards, data models, and API endpoints per project decisions (BR-1).
 - ❌ **Third-Party Real Payment Gateways**: Uses Razorpay in TEST mode only (BR-B7); no real money is ever processed.
 - ❌ **External SMS/Email Gateways**: Notifications are rendered directly within the in-app notification center via MongoDB.

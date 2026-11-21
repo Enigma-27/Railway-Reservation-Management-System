@@ -12,7 +12,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'sm' })
 
   const s = status.toUpperCase();
 
-  if (['CONFIRMED', 'ACTIVE', 'ON_TIME', 'APPROVED', 'SUCCESS', 'PAID', 'RESOLVED', 'ON_DUTY'].includes(s)) {
+  if (['CONFIRMED', 'ACTIVE', 'ON_TIME', 'APPROVED', 'SUCCESS', 'PROCESSED', 'PAID', 'RESOLVED', 'ON_DUTY'].includes(s)) {
     colorClasses = 'bg-emerald-50 text-emerald-700 border-emerald-200';
   } else if (['RAC', 'DELAYED', 'UNDER_REVIEW', 'PENDING', 'ATTENDING', 'IN_PROGRESS', 'MODERATE', 'MEDIUM', 'PAYMENT_PENDING'].includes(s)) {
     colorClasses = 'bg-amber-50 text-amber-700 border-amber-200';

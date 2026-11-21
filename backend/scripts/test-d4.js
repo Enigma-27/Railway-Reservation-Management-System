@@ -164,14 +164,19 @@ async function runTestD4() {
     // TEST 4: Chart Preparation Execution
     // -------------------------------------------------------------------------
     console.log('\n--- 4. Testing Chart Preparation Execution ---');
+    // The simulator prepares charts for runs from today (the real date) onward that are within 8 hours of departure.
+    // Older runs are in the past and are not its job. So run it for the real today, then check nothing due is left.
+    const simToday = runSimulatorCli([]);
+    assert.strictEqual(simToday.status, 0, `Simulator exit code 0 for the real today. Stderr: ${simToday.stderr}`);
     const [dueUnprepared] = await pool.query(`
       SELECT COUNT(*) AS cnt
       FROM TRAIN_SCHEDULE
       WHERE chart_prepared_at IS NULL
+        AND journey_date >= CURDATE()
         AND TIMESTAMP(journey_date, departure_time) <= NOW() + INTERVAL 8 HOUR
     `);
 
-    const chartsExecutedMatch = sim1.stdout.match(/Charts Prepared:\s+(\d+)/);
+    const chartsExecutedMatch = simToday.stdout.match(/Charts Prepared:\s+(\d+)/);
     const chartsPreparedCount = chartsExecutedMatch ? parseInt(chartsExecutedMatch[1], 10) : 0;
 
     record(

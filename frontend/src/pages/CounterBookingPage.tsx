@@ -1,16 +1,29 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStaff } from '../context/StaffContext';
 import { Ticket, User, CreditCard, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, todayIndiaDate } from '../utils/formatters';
 
 export const CounterBookingPage: React.FC = () => {
-  const { createCounterBooking, activeStaff } = useStaff();
+  const { createCounterBooking, activeStaff, activeTrain, activeSchedule, data } = useStaff();
 
-  const [trainId, setTrainId] = useState<number>(101);
-  const [scheduleId, setScheduleId] = useState<number>(1001);
-  const [sourceStationId, setSourceStationId] = useState<number>(7); // Mumbai
-  const [destStationId, setDestStationId] = useState<number>(1);   // New Delhi
-  const [journeyDate, setJourneyDate] = useState<string>('2026-10-28');
+  // The train, its stops and the date come from the officer's real assignment (no built-in sample trains)
+  const trainId = activeStaff.assignedTrainId;
+  const stops = [...data.routes].sort((a, b) => a.stopSequence - b.stopSequence);
+  const [sourceStationId, setSourceStationId] = useState<number>(0);
+  const [destStationId, setDestStationId] = useState<number>(0);
+  const [journeyDate, setJourneyDate] = useState<string>(todayIndiaDate());
+
+  useEffect(() => {
+    if (stops.length >= 2) {
+      setSourceStationId(prev => prev || stops[0].stationId);
+      setDestStationId(prev => prev || stops[stops.length - 1].stationId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.routes]);
+
+  useEffect(() => {
+    if (activeSchedule?.journeyDate) setJourneyDate(activeSchedule.journeyDate);
+  }, [activeSchedule?.journeyDate]);
   const [classType, setClassType] = useState<string>('3A');
   const [quota, setQuota] = useState<string>('GENERAL');
 
@@ -28,6 +41,10 @@ export const CounterBookingPage: React.FC = () => {
 
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!trainId || !sourceStationId || !destStationId) {
+      setError('No train run is assigned to you, so a counter ticket cannot be issued.');
+      return;
+    }
     if (!name.trim() || !idNumber.trim()) {
       setError('Please provide passenger name and official ID number');
       return;
@@ -104,9 +121,9 @@ export const CounterBookingPage: React.FC = () => {
               <span>Counter Ticket Issued Successfully!</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-xs">
-              <div>PNR: <strong className="text-emerald-950 font-bold">{bookingResult.pnr || bookingResult.booking?.pnr || 'GENERATED'}</strong></div>
-              <div>Status: <strong>{bookingResult.bookingStatus || bookingResult.booking?.status || 'CONFIRMED'}</strong></div>
-              <div>Fare: <strong>{formatCurrency(bookingResult.totalFare || bookingResult.booking?.totalFare || 1450)}</strong></div>
+              <div>PNR: <strong className="text-emerald-950 font-bold">{bookingResult.pnr || '-'}</strong></div>
+              <div>Status: <strong>{bookingResult.bookingStatus || '-'}</strong></div>
+              <div>Fare: <strong>{bookingResult.totalFare != null ? formatCurrency(bookingResult.totalFare) : '-'}</strong></div>
               <div>Payment: <strong>CASH (Confirmed)</strong></div>
             </div>
           </div>
@@ -119,19 +136,37 @@ export const CounterBookingPage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 block mb-1">Train Run / Number</label>
-                <select
-                  value={trainId}
-                  onChange={(e) => {
-                    const id = Number(e.target.value);
-                    setTrainId(id);
-                    setScheduleId(id === 101 ? 1001 : 1002);
-                  }}
-                  className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-3 py-2 text-xs text-slate-800 outline-none"
-                >
-                  <option value={101}>12951 - Mumbai Tejas Rajdhani</option>
-                  <option value={102}>12952 - New Delhi Mumbai Tejas</option>
-                  <option value={105}>22436 - Vande Bharat Express</option>
-                </select>
+                <div className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono">
+                  {activeTrain ? `${activeTrain.trainNumber} - ${activeTrain.trainName}` : 'No train assigned'}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">From / To</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    value={sourceStationId}
+                    onChange={(e) => setSourceStationId(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
+                  >
+                    {stops.map(r => (
+                      <option key={`from-${r.routeId}`} value={r.stationId}>
+                        {data.stations.find(st => st.stationId === r.stationId)?.stationCode || r.stationId}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={destStationId}
+                    onChange={(e) => setDestStationId(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
+                  >
+                    {stops.map(r => (
+                      <option key={`to-${r.routeId}`} value={r.stationId}>
+                        {data.stations.find(st => st.stationId === r.stationId)?.stationCode || r.stationId}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div>

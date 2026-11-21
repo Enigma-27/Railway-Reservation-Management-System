@@ -19,8 +19,14 @@ const {
   getAdminUsers,
   getAdminPlatforms,
   getAdminFines,
-  getAdminIncidents
+  getAdminIncidents,
+  updateUserStatus,
+  createPlatform,
+  updatePlatform,
+  deletePlatform
 } = require('../controllers/adminController');
+
+const { listRefundTransactions, retryRefundTransaction } = require('../controllers/refundTransactionController');
 
 const {
   adminListComplaints,
@@ -28,6 +34,9 @@ const {
 } = require('../controllers/complaintController');
 
 const { getActivityLogs } = require('../services/activityLogService');
+const { listContactMessages, updateContactMessage } = require('../controllers/adminContactController');
+const { calculateAdminFare } = require('../controllers/adminFareCalcController');
+const { listQuotas } = require('../controllers/adminQuotaController');
 
 const {
   listStations,
@@ -95,8 +104,16 @@ router.get('/bookings', getAdminBookings);
 // GET /api/admin/users - List users from real USER_ACCOUNT table
 router.get('/users', getAdminUsers);
 
+// PUT /api/admin/users/:id/status - Change a user's account status (not own account, not ADMIN rows)
+router.put('/users/:id/status', updateUserStatus);
+
 // GET /api/admin/platforms - List platforms from real PLATFORM table
 router.get('/platforms', getAdminPlatforms);
+
+// POST/PUT/DELETE /api/admin/platforms - Platform management (DELETE returns 409 if still referenced)
+router.post('/platforms', createPlatform);
+router.put('/platforms/:id', updatePlatform);
+router.delete('/platforms/:id', deletePlatform);
 
 // GET /api/admin/fines - List fines from real FINE table
 router.get('/fines', getAdminFines);
@@ -106,6 +123,10 @@ router.get('/incidents', getAdminIncidents);
 
 // GET /api/admin/tdr - List pending/filtered TDRs
 router.get('/tdr', getAdminTdrs);
+
+// Refund transactions (REFUND rows: PENDING / PROCESSED / FAILED). Not the same as /refunds (refund RULES).
+router.get('/refund-transactions', listRefundTransactions);
+router.post('/refund-transactions/:refundId/retry', retryRefundTransaction);
 
 // PUT /api/admin/tdr/:tdrRefNo and PUT /api/admin/tdr/:id - Review TDR claim
 router.put('/tdr/:tdrRefNo', reviewTdr);
@@ -128,6 +149,13 @@ router.get('/activity-logs', async (req, res, next) => {
     next(err);
   }
 });
+
+// GET /api/admin/quotas - the five quotas with their real rules and usage (read only)
+router.get('/quotas', listQuotas);
+
+// GET /api/admin/contact-messages, PATCH /api/admin/contact-messages/:id - Contact Us messages (list, mark done)
+router.get('/contact-messages', listContactMessages);
+router.patch('/contact-messages/:id', updateContactMessage);
 
 // GET & PUT /api/admin/complaints - Passenger complaints review
 router.get('/complaints', adminListComplaints);
@@ -198,6 +226,7 @@ router.delete('/seats/:id', deleteSeat);
 
 // 6. Fares
 router.get('/fares', listFares);
+router.get('/fares/calculate', calculateAdminFare); // real fare from fn_calculate_fare (read only)
 router.get('/fares/:id', getFare);
 router.post('/fares', createFare);
 router.put('/fares/:id', updateFare);

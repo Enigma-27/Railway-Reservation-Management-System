@@ -39,7 +39,9 @@ BEGIN
 
     SELECT CAST(setting_value AS SIGNED) INTO v_min_km
     FROM SETTING
-    WHERE setting_key = 'MIN_CHARGEABLE_KM';
+    WHERE setting_key IN ('MIN_CHARGEABLE_DISTANCE_KM', 'MIN_CHARGEABLE_KM')
+    ORDER BY (setting_key = 'MIN_CHARGEABLE_DISTANCE_KM') DESC
+    LIMIT 1; -- seed key is MIN_CHARGEABLE_DISTANCE_KM; the old name is only a fallback
 
     IF v_dist < v_min_km THEN
         SET v_dist = v_min_km;
@@ -63,7 +65,9 @@ READS SQL DATA
 BEGIN
     DECLARE v_count INT DEFAULT 0;
 
-    -- Shared COUNTER_WALKIN account is exempt (user_id 50008)
+    -- Shared COUNTER_WALKIN account is exempt (BR-B15). It is the fixed seed user 50008
+    -- (USER_ACCOUNT.csv, full_name COUNTER_WALKIN). It is on purpose: all walk-in counter
+    -- tickets are booked under this one account, so a monthly cap would block the counter.
     IF p_user_id = 50008 THEN
         RETURN 0;
     END IF;
@@ -95,7 +99,7 @@ BEGIN
     DECLARE v_current_count INT DEFAULT 0;
 
     IF p_user_id = 50008 THEN
-        RETURN 1; -- COUNTER_WALKIN exempt
+        RETURN 1; -- COUNTER_WALKIN exempt on purpose (see fn_get_user_monthly_ticket_count)
     END IF;
 
     SELECT aadhaar_verified INTO v_aadhaar_verified
@@ -116,6 +120,75 @@ BEGIN
 
     IF v_current_count >= v_max_limit THEN
         RETURN 0;
+    END IF;
+
+    RETURN 1;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- 3a. fn_get_setting
+-- Reads one SETTING value as text, or the given default when the key is missing.
+-- Used by fn_calculate_fare and fn_calculate_cancellation_refund so the admin can change the values.
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS fn_get_setting$$
+CREATE FUNCTION fn_get_setting(
+    p_key VARCHAR(64),
+    p_default VARCHAR(255)
+)
+RETURNS VARCHAR(255)
+READS SQL DATA
+BEGIN
+    DECLARE v_value VARCHAR(255) DEFAULT NULL;
+    SELECT setting_value INTO v_value FROM SETTING WHERE setting_key = p_key;
+    RETURN COALESCE(v_value, p_default);
+END$$
+
+-- -----------------------------------------------------------------------------
+-- 3b. fn_setting_value_valid
+-- 1 if the value is allowed for the key, 0 if it would break the money maths.
+-- Used by the SETTING triggers (trg_validate_setting_insert / _update). Keys not listed accept any text.
+--   GST_RATE_AC                      number from 0 to 1 (0.05 = 5 percent)
+--   INSURANCE_PREMIUM_PER_PASSENGER  number from 0 to 10000
+--   CLERKAGE_PER_PASSENGER           number from 0 to 10000
+--   DYNAMIC_FARE_ENABLED, CONCESSION_SENIOR_ENABLED   true or false
+--   MIN_CHARGEABLE_DISTANCE_KM       whole number from 0 to 10000
+--   BOOKING_WINDOW_DAYS              whole number from 0 to 365
+--   HOLD_MINUTES                     whole number from 1 to 1440
+--   SENIOR_AGE_MALE, SENIOR_AGE_FEMALE   whole number from 1 to 120
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS fn_setting_value_valid$$
+CREATE FUNCTION fn_setting_value_valid(
+    p_key VARCHAR(64),
+    p_value VARCHAR(255)
+)
+RETURNS TINYINT(1)
+DETERMINISTIC
+BEGIN
+    DECLARE v_num DECIMAL(20,6);
+    IF p_value IS NULL THEN RETURN 0; END IF;
+
+    IF p_key IN ('DYNAMIC_FARE_ENABLED', 'CONCESSION_SENIOR_ENABLED') THEN
+        RETURN IF(p_value IN ('true', 'false'), 1, 0);
+    END IF;
+
+    IF p_key IN ('GST_RATE_AC', 'INSURANCE_PREMIUM_PER_PASSENGER', 'CLERKAGE_PER_PASSENGER') THEN
+        IF p_value NOT REGEXP '^[0-9]{1,10}(\\.[0-9]{1,6})?$' THEN RETURN 0; END IF;
+        SET v_num = CAST(p_value AS DECIMAL(20,6));
+        IF p_key = 'GST_RATE_AC' THEN RETURN IF(v_num <= 1, 1, 0); END IF;
+        RETURN IF(v_num <= 10000, 1, 0);
+    END IF;
+
+    IF p_key IN ('SENIOR_AGE_MALE', 'SENIOR_AGE_FEMALE') THEN
+        IF p_value NOT REGEXP '^[0-9]{1,3}$' THEN RETURN 0; END IF;
+        RETURN IF(CAST(p_value AS UNSIGNED) BETWEEN 1 AND 120, 1, 0);
+    END IF;
+
+    IF p_key IN ('MIN_CHARGEABLE_DISTANCE_KM', 'BOOKING_WINDOW_DAYS', 'HOLD_MINUTES') THEN
+        IF p_value NOT REGEXP '^[0-9]{1,6}$' THEN RETURN 0; END IF;
+        SET v_num = CAST(p_value AS DECIMAL(20,6));
+        IF p_key = 'MIN_CHARGEABLE_DISTANCE_KM' THEN RETURN IF(v_num <= 10000, 1, 0); END IF;
+        IF p_key = 'BOOKING_WINDOW_DAYS' THEN RETURN IF(v_num <= 365, 1, 0); END IF;
+        RETURN IF(v_num >= 1 AND v_num <= 1440, 1, 0);
     END IF;
 
     RETURN 1;
@@ -154,6 +227,11 @@ BEGIN
     DECLARE v_gst DECIMAL(10,2) DEFAULT 0.00;
     DECLARE v_insurance DECIMAL(10,2) DEFAULT 0.00;
     DECLARE v_total_fare DECIMAL(10,2) DEFAULT 0.00;
+    DECLARE v_group VARCHAR(32) DEFAULT 'STANDARD';
+    DECLARE v_gst_rate DECIMAL(6,4) DEFAULT 0.0500;
+    DECLARE v_ins_premium DECIMAL(10,2) DEFAULT 0.45;
+    DECLARE v_total_seats INT DEFAULT 0;
+    DECLARE v_avail_seats INT DEFAULT 0;
 
     -- 1. Identify train type and coach type
     SELECT train_type INTO v_train_type FROM TRAIN WHERE train_id = p_train_id;
@@ -174,16 +252,21 @@ BEGIN
 
     SET v_base_fare = ROUND(p_distance * v_rate_per_km, 2);
 
-    -- 3. Concession (Divyaang only, on base fare; Tatkal cannot have concession)
-    IF p_quota != 'TATKAL' AND p_concession_type = 'DIVYAANG' THEN
-        IF v_train_type IN ('RAJDHANI', 'SHATABDI', 'DURONTO', 'VANDE_BHARAT') AND p_class_id IN (3, 5) THEN -- 3A, CC
-            SET v_concession_pct = 25.00;
-        ELSEIF p_class_id IN (4, 7, 3, 5) THEN -- SL, 2S, 3A, CC
-            SET v_concession_pct = 75.00;
-        ELSEIF p_class_id IN (1, 2) THEN -- 1A, 2A
-            SET v_concession_pct = 50.00;
-        ELSE -- EC
-            SET v_concession_pct = 0.00;
+    -- 3. Concession on the base fare, read from CONCESSION_RULE (BR-F6, BR-C1, BR-C2, BR-C5).
+    --    Tatkal never gets a concession. Premium trains (Rajdhani, Shatabdi, Duronto, Vande Bharat) use the
+    --    PREMIUM rule of the class if there is one, otherwise the STANDARD rule. A rule counts only when
+    --    is_active = 1. The senior concession also needs the setting CONCESSION_SENIOR_ENABLED = true.
+    SET v_group = IF(v_train_type IN ('RAJDHANI', 'SHATABDI', 'DURONTO', 'VANDE_BHARAT'), 'PREMIUM', 'STANDARD');
+    IF p_quota != 'TATKAL' AND p_concession_type IN ('DIVYAANG', 'SENIOR_CITIZEN') THEN
+        IF p_concession_type = 'DIVYAANG' OR fn_get_setting('CONCESSION_SENIOR_ENABLED', 'false') = 'true' THEN
+            SELECT discount_pct INTO v_concession_pct
+            FROM CONCESSION_RULE
+            WHERE concession_type = p_concession_type
+              AND class_id = p_class_id
+              AND is_active = 1
+              AND train_group IN (v_group, 'STANDARD')
+            ORDER BY (train_group = v_group) DESC
+            LIMIT 1;
         END IF;
         SET v_concession_discount = ROUND(v_base_fare * (v_concession_pct / 100.00), 2);
     END IF;
@@ -223,19 +306,33 @@ BEGIN
         END IF;
     END IF;
 
+    -- 6a. Dynamic Tatkal fare (BR-F11): only when DYNAMIC_FARE_ENABLED = true, only for TATKAL, and only when
+    --     80 percent or more of the confirmed seats of the run and class are already booked.
+    --     Surcharge = base fare x 0.5 (the 80 percent and the 1.5 multiplier are fixed by the business rules).
+    IF p_quota = 'TATKAL' AND fn_get_setting('DYNAMIC_FARE_ENABLED', 'false') = 'true' THEN
+        SELECT total_seats, available_seats INTO v_total_seats, v_avail_seats
+        FROM SCHEDULE_CLASS_INVENTORY
+        WHERE schedule_id = p_schedule_id AND class_id = p_class_id;
+        IF v_total_seats > 0 AND (v_total_seats - v_avail_seats) * 100 >= v_total_seats * 80 THEN
+            SET v_dynamic_surcharge = ROUND(v_base_fare * 0.5, 2);
+        END IF;
+    END IF;
+
     -- 7. Taxable Amount
     SET v_taxable = (v_base_fare - v_concession_discount) + v_res_charge + v_sf_charge + v_tatkal_charge + v_dynamic_surcharge;
 
-    -- 8. GST (5% on AC classes)
+    -- 8. GST on AC classes, rate from SETTING GST_RATE_AC (0.05 = 5%)
+    SET v_gst_rate = CAST(fn_get_setting('GST_RATE_AC', '0.05') AS DECIMAL(6,4));
     IF v_coach_type = 'AC' THEN
-        SET v_gst = ROUND(v_taxable * 0.05, 2);
+        SET v_gst = ROUND(v_taxable * v_gst_rate, 2);
     ELSE
         SET v_gst = 0.00;
     END IF;
 
-    -- 9. Optional insurance premium (0.45 flat)
+    -- 9. Optional insurance premium, from SETTING INSURANCE_PREMIUM_PER_PASSENGER (0.45 flat)
+    SET v_ins_premium = CAST(fn_get_setting('INSURANCE_PREMIUM_PER_PASSENGER', '0.45') AS DECIMAL(10,2));
     IF p_include_insurance = 1 THEN
-        SET v_insurance = 0.45;
+        SET v_insurance = v_ins_premium;
     ELSE
         SET v_insurance = 0.00;
     END IF;
@@ -286,6 +383,8 @@ BEGIN
     DECLARE v_deduction_pct DECIMAL(5,2) DEFAULT 0.00;
     DECLARE v_clerkage DECIMAL(10,2) DEFAULT 60.00;
     DECLARE v_eligible_fare DECIMAL(10,2) DEFAULT 0.00;
+    DECLARE v_rule_pct DECIMAL(5,2) DEFAULT NULL;
+    DECLARE v_rule_flat DECIMAL(8,2) DEFAULT NULL;
 
     -- Retrieve booking & passenger info
     SELECT b.schedule_id, b.class_id, b.quota, pb.total_fare, pb.insurance, r.status
@@ -334,50 +433,28 @@ BEGIN
         RETURN JSON_OBJECT('charge', v_charge, 'refund_amount', v_refund);
     END IF;
 
-    -- Rule BR-R1: Confirmed ticket refund slabs by origin departure time
-    IF v_hours_left > 72 THEN
-        -- Flat minimum charge
-        CASE v_class_id
-            WHEN 1 THEN SET v_flat_min = 240.00; -- 1A
-            WHEN 6 THEN SET v_flat_min = 240.00; -- EC
-            WHEN 2 THEN SET v_flat_min = 200.00; -- 2A
-            WHEN 3 THEN SET v_flat_min = 180.00; -- 3A
-            WHEN 5 THEN SET v_flat_min = 180.00; -- CC
-            WHEN 4 THEN SET v_flat_min = 120.00; -- SL
-            WHEN 7 THEN SET v_flat_min = 60.00;  -- 2S
-            ELSE SET v_flat_min = 120.00;
-        END CASE;
-        SET v_charge = v_flat_min;
-    ELSEIF v_hours_left >= 24 AND v_hours_left <= 72 THEN
-        CASE v_class_id
-            WHEN 1 THEN SET v_flat_min = 240.00;
-            WHEN 6 THEN SET v_flat_min = 240.00;
-            WHEN 2 THEN SET v_flat_min = 200.00;
-            WHEN 3 THEN SET v_flat_min = 180.00;
-            WHEN 5 THEN SET v_flat_min = 180.00;
-            WHEN 4 THEN SET v_flat_min = 120.00;
-            WHEN 7 THEN SET v_flat_min = 60.00;
-            ELSE SET v_flat_min = 120.00;
-        END CASE;
-        SET v_charge = ROUND(v_eligible_fare * 0.25, 2);
-        IF v_charge < v_flat_min THEN SET v_charge = v_flat_min; END IF;
-    ELSEIF v_hours_left >= 8 AND v_hours_left < 24 THEN
-        CASE v_class_id
-            WHEN 1 THEN SET v_flat_min = 240.00;
-            WHEN 6 THEN SET v_flat_min = 240.00;
-            WHEN 2 THEN SET v_flat_min = 200.00;
-            WHEN 3 THEN SET v_flat_min = 180.00;
-            WHEN 5 THEN SET v_flat_min = 180.00;
-            WHEN 4 THEN SET v_flat_min = 120.00;
-            WHEN 7 THEN SET v_flat_min = 60.00;
-            ELSE SET v_flat_min = 120.00;
-        END CASE;
-        SET v_charge = ROUND(v_eligible_fare * 0.50, 2);
-        IF v_charge < v_flat_min THEN SET v_charge = v_flat_min; END IF;
-    ELSE
-        -- Less than 8 hours: No refund
-        SET v_charge = v_eligible_fare;
+    -- Rule BR-R1: refund slab by hours before origin departure, read from REFUND_RULE.
+    -- The slab is the rule with the highest min_hours that the time has reached (the top slab, which has no
+    -- max_hours, needs the time to be strictly above its min_hours). A rule for the ticket's class beats a
+    -- general rule (class_id NULL) of the same slab. Before the first slab (time already past departure) the
+    -- lowest slab applies.
+    SELECT deduction_pct, flat_min_charge INTO v_rule_pct, v_rule_flat
+    FROM REFUND_RULE
+    WHERE (class_id = v_class_id OR class_id IS NULL)
+      AND (v_hours_left > min_hours OR (max_hours IS NOT NULL AND v_hours_left >= min_hours))
+    ORDER BY min_hours DESC, (class_id IS NOT NULL) DESC
+    LIMIT 1;
+
+    IF v_rule_pct IS NULL THEN
+        SELECT deduction_pct, flat_min_charge INTO v_rule_pct, v_rule_flat
+        FROM REFUND_RULE
+        WHERE class_id = v_class_id OR class_id IS NULL
+        ORDER BY min_hours ASC, (class_id IS NOT NULL) DESC
+        LIMIT 1;
     END IF;
+
+    -- The charge is the larger of the flat minimum and the percentage of the fare, never more than the fare
+    SET v_charge = GREATEST(ROUND(v_eligible_fare * (COALESCE(v_rule_pct, 100.00) / 100.00), 2), COALESCE(v_rule_flat, 0.00));
 
     IF v_charge > v_eligible_fare THEN
         SET v_charge = v_eligible_fare;
@@ -386,6 +463,72 @@ BEGIN
     SET v_refund = ROUND(v_eligible_fare - v_charge, 2);
 
     RETURN JSON_OBJECT('charge', v_charge, 'refund_amount', v_refund);
+END$$
+
+-- -----------------------------------------------------------------------------
+-- 6. fn_pick_refund_payment
+-- The payment a refund must be booked against: the latest SUCCESS payment of the
+-- PNR that is NOT itself a "payment after expiry" (BR-B14). A late payment is
+-- already refunded in full, so cancellations and TDR refunds must never use it.
+-- Returns NULL when the PNR has no such payment.
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS fn_pick_refund_payment$$
+CREATE FUNCTION fn_pick_refund_payment(
+    p_pnr VARCHAR(10)
+)
+RETURNS INT
+READS SQL DATA
+BEGIN
+    DECLARE v_payment_id INT DEFAULT NULL;
+
+    SELECT p.payment_id INTO v_payment_id
+    FROM PAYMENT p
+    WHERE p.pnr = p_pnr
+      AND p.status = 'SUCCESS'
+      AND NOT EXISTS (
+          SELECT 1 FROM REFUND r
+          WHERE r.payment_id = p.payment_id AND r.reason = 'PAYMENT_AFTER_EXPIRY'
+      )
+    ORDER BY p.paid_at DESC, p.payment_id DESC
+    LIMIT 1;
+
+    RETURN v_payment_id;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- 7. fn_refund_room
+-- How much more can still be refunded on a payment: amount paid minus the refund
+-- rows already written for it. PENDING, PROCESSED and FAILED all count: a FAILED
+-- refund is still owed to the passenger and will be retried.
+-- Only refunds that belong to the payment's own PNR are counted: the cancellation or
+-- TDR behind a refund must be for the same PNR as the payment. (The seed data has
+-- refund rows attached to another PNR's payment; those are not refunds of this payment.)
+-- Used by the refund cap checks (never refund more than was paid).
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS fn_refund_room$$
+CREATE FUNCTION fn_refund_room(
+    p_payment_id INT
+)
+RETURNS DECIMAL(10,2)
+READS SQL DATA
+BEGIN
+    DECLARE v_paid DECIMAL(10,2) DEFAULT NULL;
+    DECLARE v_pnr VARCHAR(10) DEFAULT NULL;
+    DECLARE v_refunded DECIMAL(10,2) DEFAULT 0.00;
+
+    SELECT amount, pnr INTO v_paid, v_pnr FROM PAYMENT WHERE payment_id = p_payment_id;
+    IF v_paid IS NULL THEN
+        RETURN 0.00;
+    END IF;
+
+    SELECT COALESCE(SUM(r.amount), 0.00) INTO v_refunded
+    FROM REFUND r
+    LEFT JOIN CANCELLATION c ON c.cancel_id = r.cancel_id
+    LEFT JOIN TDR_FILING t ON t.tdr_ref_no = r.tdr_ref_no
+    WHERE r.payment_id = p_payment_id
+      AND COALESCE(c.pnr, t.pnr, v_pnr) = v_pnr;
+
+    RETURN GREATEST(0.00, v_paid - v_refunded);
 END$$
 
 DELIMITER ;

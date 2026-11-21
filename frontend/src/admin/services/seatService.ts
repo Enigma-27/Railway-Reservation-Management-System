@@ -1,11 +1,11 @@
-import { API_CONFIG } from '../config/api.config';
+import { isServiceMock } from '../config/api.config';
 import { Seat } from '../types/seat';
 import { httpRequest } from './http.client';
 import { mockStore, simulateLatency } from './mock.client';
 
 export const seatService = {
   async getSeats(coachId?: number): Promise<Seat[]> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getSeats();
       const filtered = coachId ? list.filter((s) => s.coachId === coachId) : list;
@@ -17,7 +17,7 @@ export const seatService = {
   },
 
   async createSeat(payload: Omit<Seat, 'seatId'>): Promise<Seat> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getSeats();
       const newId = Math.max(...list.map((s) => s.seatId), 0) + 1;
@@ -43,7 +43,7 @@ export const seatService = {
   },
 
   async updateSeat(seatId: number, payload: Partial<Omit<Seat, 'seatId'>>): Promise<Seat> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getSeats();
       const idx = list.findIndex((s) => s.seatId === seatId);
@@ -73,7 +73,7 @@ export const seatService = {
   },
 
   async deleteSeat(seatId: number): Promise<void> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getSeats();
       const target = list.find((s) => s.seatId === seatId);

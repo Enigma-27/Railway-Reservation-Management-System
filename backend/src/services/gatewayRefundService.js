@@ -1,6 +1,18 @@
 const Razorpay = require('razorpay');
 const config = require('../config/env');
-const { getMongoDb } = require('../config/mongodb');
+const pool = require('../config/mysql');
+const { safeMongoInsert } = require('../config/mongodb');
+
+/**
+ * Gateway refunds, one REFUND row at a time.
+ *
+ * SQL decides every amount and writes the REFUND row as PENDING. This service only moves the money
+ * at the gateway and then records the result through sp_set_refund_result (the only way a REFUND
+ * status changes). No refund maths happens here: the amount is REFUND.amount, the payment is
+ * REFUND.payment_id (never "the latest payment").
+ *
+ * Life of a row: PENDING -> PROCESSED, or PENDING -> FAILED -> (retry) -> PROCESSED / FAILED.
+ */
 
 /**
  * Convert rupee decimal to exact paise integer using BigInt math (never floating point)
@@ -15,10 +27,8 @@ function toPaise(decimalStrOrNum) {
 }
 
 /**
- * Detects real/gateway Razorpay payment IDs vs seeded fake IDs and simulated test IDs.
- * - Seeded fake IDs in database: 'pay_test_2849100000_1002' (all 16,375 seeded rows start with 'pay_test_')
- * - Simulated test IDs in scripts: 'pay_sim_...'
- * - Real Razorpay payment IDs: 'pay_' followed by exactly 14 letters or digits.
+ * Real Razorpay payment IDs are 'pay_' plus exactly 14 letters or digits.
+ * Seeded ids ('pay_test_...') and simulator ids ('pay_sim_...') are not real.
  */
 function isRealRazorpayPaymentId(id) {
   if (typeof id !== 'string') return false;
@@ -31,116 +41,220 @@ function setRazorpayClientOverride(mockClient) {
   _razorpayClientOverride = mockClient;
 }
 
-/**
- * Shared gateway refund helper for online payments.
- * Performs idempotent Razorpay refund and logs raw replies to MongoDB raw_gateway_replies.
- * 
- * @param {Object} params
- * @param {string} params.pnr - Booking PNR
- * @param {string} [params.paymentMethod] - Payment method ('UPI', 'NET_BANKING', 'CREDIT_CARD', 'CASH', etc.)
- * @param {string} params.gatewayPaymentId - Payment transaction ID from gateway
- * @param {number|string} params.amountInRupees - Refund amount in INR
- * @param {Array<number>} [params.refundIds] - Array of database REFUND IDs covered by this refund call
- * @param {string} params.reason - Reason for refund ('CANCELLATION', 'PAYMENT_AFTER_EXPIRY', etc.)
- * @returns {Promise<{ status: 'SUCCESS'|'FAILED'|'SKIPPED', reason?: string, reply?: Object, error?: string, isIdempotent?: boolean }>}
- */
-async function processGatewayRefund({ pnr, paymentMethod, gatewayPaymentId, amountInRupees, refundIds, reason }) {
-  // 1. Skip CASH payments or payments without gateway IDs
-  if (paymentMethod === 'CASH' || !gatewayPaymentId) {
-    return { status: 'SKIPPED', reason: 'CASH_OR_NO_GATEWAY_ID' };
-  }
+function isClientOverridden() {
+  return Boolean(_razorpayClientOverride);
+}
 
-  // 2. Validate gateway payment ID:
-  // Must match /^pay_[a-zA-Z0-9]{14}$/. Skipped for pay_test_ ids, pay_sim_ ids and CASH for EVERY refund reason.
-  // Only exception: when _razorpayClientOverride is set (test-only), pay_sim_ ids may pass.
-  const isReal = isRealRazorpayPaymentId(gatewayPaymentId);
-  const isAllowedTestOverride = Boolean(_razorpayClientOverride) && typeof gatewayPaymentId === 'string' && gatewayPaymentId.startsWith('pay_sim_');
-
-  if (!isReal && !isAllowedTestOverride) {
-    return { status: 'SKIPPED', reason: 'SEEDED_OR_SIMULATED_PAYMENT_ID', gatewayPaymentId };
-  }
-
-  const db = getMongoDb();
-  const sortedRefundIds = Array.isArray(refundIds)
-    ? refundIds.map(Number).sort((a, b) => a - b)
-    : [];
-
-  // 3. Idempotency check: payment id PLUS list of REFUND ids covered by this call
-  if (db) {
-    const query = {
-      paymentId: String(gatewayPaymentId),
-      type: { $in: ['refund_success', 'refund_failure'] }
-    };
-    if (sortedRefundIds.length > 0) {
-      query.refundIds = sortedRefundIds;
-    }
-    const existing = await db.collection('raw_gateway_replies').findOne(query);
-    if (existing) {
-      return {
-        status: existing.type === 'refund_success' ? 'SUCCESS' : 'FAILED',
-        reply: existing.reply,
-        isIdempotent: true
-      };
-    }
-  }
-
-  // 4. Exact integer math for paise
-  const amountInPaise = toPaise(amountInRupees);
-
-  // 5. Invoke live/test Razorpay API or simulated test client
-  const razorpay = _razorpayClientOverride || new Razorpay({
+function getRazorpayClient() {
+  return _razorpayClientOverride || new Razorpay({
     key_id: config.RAZORPAY_KEY_ID,
     key_secret: config.RAZORPAY_KEY_SECRET
   });
+}
 
+/**
+ * Record a result through sp_set_refund_result. CALL and SELECT @out use the SAME connection.
+ * Returns the procedure's status_out (PROCESSED, FAILED, INVALID_TRANSITION or NOT_FOUND).
+ */
+async function setRefundResult(conn, refundId, status, gatewayRefundId, failureReason) {
+  await conn.query('CALL sp_set_refund_result(?, ?, ?, ?, @out_refund_status)', [
+    refundId,
+    status,
+    gatewayRefundId || null,
+    failureReason ? String(failureReason).slice(0, 255) : null
+  ]);
+  const [[row]] = await conn.query('SELECT @out_refund_status AS status_out');
+  return row.status_out;
+}
+
+// Raw gateway replies are an optional audit copy in MongoDB: never let a Mongo problem touch a refund
+async function logRawReply(doc) {
+  await safeMongoInsert('raw_gateway_replies', doc);
+}
+
+/**
+ * Process ONE refund row at the gateway and record the result.
+ *
+ * @param {number|string} refundId
+ * @returns {Promise<{refundId:number, refundStatus:string, outcome:'SUCCESS'|'SKIPPED'|'FAILED'|'BUSY'|'NOT_FOUND'|'ALREADY_PROCESSED', message?:string}>}
+ *   refundStatus is the REFUND.status after this call. outcome says what happened at the gateway:
+ *   SUCCESS = real Razorpay refund done (or found already done), SKIPPED = no real money moves
+ *   (cash, seeded or simulated payment), FAILED = gateway error (row is FAILED, will be retried).
+ */
+async function processRefundById(refundId) {
+  const id = parseInt(refundId, 10);
+  if (isNaN(id) || id <= 0) return { refundId: id, refundStatus: 'UNKNOWN', outcome: 'NOT_FOUND' };
+
+  // One refund row is never processed by two runs at once (retry timer, admin retry, the request itself)
+  const conn = await pool.getConnection();
+  let locked = false;
   try {
-    const reply = await razorpay.payments.refund(gatewayPaymentId, {
-      amount: amountInPaise,
-      notes: { pnr: String(pnr), reason: String(reason || 'CANCELLATION') }
-    });
-
-    if (db) {
-      await db.collection('raw_gateway_replies').insertOne({
-        pnr: String(pnr),
-        type: 'refund_success',
-        paymentId: String(gatewayPaymentId),
-        refundIds: sortedRefundIds,
-        amount: amountInPaise,
-        reason,
-        reply,
-        createdAt: new Date()
-      });
+    const [[lockRow]] = await conn.query('SELECT GET_LOCK(?, 0) AS got', [`refund_row_${id}`]);
+    locked = Number(lockRow.got) === 1;
+    if (!locked) {
+      const [[cur]] = await conn.query('SELECT status FROM REFUND WHERE refund_id = ?', [id]);
+      return { refundId: id, refundStatus: cur ? cur.status : 'UNKNOWN', outcome: 'BUSY', message: 'Another run is already processing this refund' };
     }
 
-    return { status: 'SUCCESS', reply };
-  } catch (err) {
-    const errorDescription = (err.error && err.error.description) || err.description || err.message || 'Unknown gateway error';
-    const statusCode = err.statusCode || (err.error && err.error.code) || 'N/A';
-    console.error(`[GATEWAY_REFUND_FAIL]: (status: ${statusCode}) ${errorDescription}`);
+    // Read the row inside the lock (an earlier run may just have finished it)
+    const [rows] = await conn.query(
+      `SELECT r.refund_id, r.status, r.amount, r.reason, r.payment_id,
+              p.pnr, p.method, p.gateway_payment_id
+       FROM REFUND r
+       JOIN PAYMENT p ON p.payment_id = r.payment_id
+       WHERE r.refund_id = ?`,
+      [id]
+    );
+    if (rows.length === 0) return { refundId: id, refundStatus: 'UNKNOWN', outcome: 'NOT_FOUND' };
+    const refund = rows[0];
 
-    if (db) {
-      await db.collection('raw_gateway_replies').insertOne({
-        pnr: String(pnr),
-        type: 'refund_failure',
-        paymentId: String(gatewayPaymentId),
-        refundIds: sortedRefundIds,
-        amount: amountInPaise,
-        reason,
-        reply: {
-          statusCode: err.statusCode || null,
-          description: errorDescription,
-          error: err.error || err
-        },
-        createdAt: new Date()
-      });
+    if (refund.status === 'PROCESSED') {
+      return { refundId: id, refundStatus: 'PROCESSED', outcome: 'ALREADY_PROCESSED' };
     }
-    return { status: 'FAILED', error: errorDescription, statusCode };
+
+    // No real money moves for cash, seeded ('pay_test_') and simulated ('pay_sim_') payments.
+    // The row is still moved to PROCESSED (with a note) so it does not stay PENDING forever.
+    const isReal = isRealRazorpayPaymentId(refund.gateway_payment_id);
+    const isTestOverride = Boolean(_razorpayClientOverride)
+      && typeof refund.gateway_payment_id === 'string' && refund.gateway_payment_id.startsWith('pay_sim_');
+
+    if (refund.method === 'CASH' || !refund.gateway_payment_id || (!isReal && !isTestOverride)) {
+      const note = refund.method === 'CASH' ? 'CASH_PAYMENT_NO_GATEWAY' : 'SIMULATED_PAYMENT';
+      const out = await setRefundResult(conn, id, 'PROCESSED', null, note);
+      return {
+        refundId: id,
+        refundStatus: out === 'PROCESSED' ? 'PROCESSED' : refund.status,
+        outcome: 'SKIPPED',
+        message: `${note}: no real money moved`
+      };
+    }
+
+    const razorpay = getRazorpayClient();
+    const amountInPaise = toPaise(refund.amount);
+
+    try {
+      // Retry safety: if Razorpay already holds a refund for this REFUND row, do not create a second one
+      const existing = await razorpay.payments.fetchMultipleRefund(refund.gateway_payment_id, { count: 100 });
+      const items = (existing && existing.items) || [];
+      const already = items.find(it => it && it.notes && String(it.notes.refund_id) === String(id));
+      if (already) {
+        const out = await setRefundResult(conn, id, 'PROCESSED', already.id, 'ALREADY_AT_GATEWAY');
+        await logRawReply({ pnr: String(refund.pnr), type: 'refund_success', paymentId: String(refund.gateway_payment_id), refundIds: [id], amount: amountInPaise, reason: refund.reason, reply: already, found: 'existing' });
+        return { refundId: id, refundStatus: out === 'PROCESSED' ? 'PROCESSED' : refund.status, outcome: 'SUCCESS', message: 'Refund already existed at the gateway' };
+      }
+
+      const reply = await razorpay.payments.refund(refund.gateway_payment_id, {
+        amount: amountInPaise,
+        notes: { refund_id: String(id), pnr: String(refund.pnr), reason: String(refund.reason) }
+      });
+
+      const out = await setRefundResult(conn, id, 'PROCESSED', reply && reply.id, null);
+      await logRawReply({ pnr: String(refund.pnr), type: 'refund_success', paymentId: String(refund.gateway_payment_id), refundIds: [id], amount: amountInPaise, reason: refund.reason, reply });
+      return { refundId: id, refundStatus: out === 'PROCESSED' ? 'PROCESSED' : refund.status, outcome: 'SUCCESS' };
+    } catch (err) {
+      const description = (err.error && err.error.description) || err.description || err.message || 'Unknown gateway error';
+      console.error(`[GATEWAY_REFUND_FAIL]: refund ${id}: ${description}`);
+      await logRawReply({
+        pnr: String(refund.pnr), type: 'refund_failure', paymentId: String(refund.gateway_payment_id), refundIds: [id],
+        amount: amountInPaise, reason: refund.reason,
+        reply: { statusCode: err.statusCode || null, description, error: err.error || null }
+      });
+      const out = await setRefundResult(conn, id, 'FAILED', null, description);
+      return { refundId: id, refundStatus: out === 'FAILED' ? 'FAILED' : refund.status, outcome: 'FAILED', message: description };
+    }
+  } finally {
+    if (locked) {
+      try { await conn.query('SELECT RELEASE_LOCK(?)', [`refund_row_${id}`]); } catch (_) { /* ignore */ }
+    }
+    conn.release();
+  }
+}
+
+/**
+ * Process several refund rows one after the other. Never throws: an error on one row
+ * is logged and reported as FAILED for that row only.
+ */
+async function processRefundsByIds(refundIds) {
+  const results = [];
+  for (const id of (refundIds || [])) {
+    try {
+      results.push(await processRefundById(id));
+    } catch (err) {
+      console.error(`[GATEWAY_REFUND_ERROR]: refund ${id}:`, err.message);
+      results.push({ refundId: Number(id), refundStatus: 'PENDING', outcome: 'FAILED', message: err.message });
+    }
+  }
+  return results;
+}
+
+/**
+ * One word for the HTTP response field gatewayRefund:
+ * FAILED if any row failed, PENDING if any row is still waiting, SKIPPED if no real money moved,
+ * PROCESSED if every row was refunded, SKIPPED when there is nothing to refund.
+ */
+function summarizeGatewayResult(results) {
+  if (!results || results.length === 0) return 'SKIPPED';
+  if (results.some(r => r.outcome === 'FAILED' || r.refundStatus === 'FAILED')) return 'FAILED';
+  if (results.some(r => r.refundStatus === 'PENDING' || r.outcome === 'BUSY')) return 'PENDING';
+  if (results.every(r => r.outcome === 'SKIPPED')) return 'SKIPPED';
+  return 'PROCESSED';
+}
+
+/** Plain message for the response when something is not done yet. Null when all is fine. */
+function refundMessage(summary) {
+  if (summary === 'FAILED') return 'The cancellation is done. The refund could not be sent yet and will be retried automatically.';
+  if (summary === 'PENDING') return 'The cancellation is done. The refund is being processed.';
+  return null;
+}
+
+/**
+ * Retry refund rows that are PENDING or FAILED, older than minAgeMinutes, with fewer than maxAttempts tries.
+ * Age counts from the last attempt, or (never tried) from the cancellation, TDR review or payment time.
+ * An overlapping run is skipped with a database lock; each row also has its own lock.
+ */
+async function retryDueRefunds({ minAgeMinutes = 5, maxAttempts = 3, limit = 50 } = {}) {
+  const conn = await pool.getConnection();
+  let locked = false;
+  try {
+    const [[lockRow]] = await conn.query("SELECT GET_LOCK('refund_retry_run', 0) AS got");
+    locked = Number(lockRow.got) === 1;
+    if (!locked) return { skipped: true, attempted: 0, results: [] };
+
+    const [due] = await conn.query(
+      `SELECT r.refund_id
+       FROM REFUND r
+       JOIN PAYMENT p ON p.payment_id = r.payment_id
+       LEFT JOIN CANCELLATION c ON c.cancel_id = r.cancel_id
+       LEFT JOIN TDR_FILING t ON t.tdr_ref_no = r.tdr_ref_no
+       WHERE r.status IN ('PENDING', 'FAILED')
+         AND r.attempts < ?
+         AND COALESCE(r.last_attempt_at, c.cancelled_at, t.reviewed_at, p.paid_at)
+             <= COALESCE(@as_of_time, NOW()) - INTERVAL ? MINUTE
+       ORDER BY r.refund_id ASC
+       LIMIT ?`,
+      [maxAttempts, minAgeMinutes, limit]
+    );
+
+    const results = await processRefundsByIds(due.map(d => d.refund_id));
+    return { skipped: false, attempted: results.length, results };
+  } finally {
+    if (locked) {
+      try { await conn.query("SELECT RELEASE_LOCK('refund_retry_run')"); } catch (_) { /* ignore */ }
+    }
+    conn.release();
   }
 }
 
 module.exports = {
   toPaise,
   isRealRazorpayPaymentId,
-  processGatewayRefund,
-  setRazorpayClientOverride
+  setRazorpayClientOverride,
+  isClientOverridden,
+  getRazorpayClient,
+  setRefundResult,
+  processRefundById,
+  processRefundsByIds,
+  summarizeGatewayResult,
+  refundMessage,
+  retryDueRefunds
 };

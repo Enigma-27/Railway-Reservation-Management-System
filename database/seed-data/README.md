@@ -48,8 +48,8 @@ database/
     │   ├── PAYMENT.csv          # 14,747 Razorpay TEST mode payment transactions
     │   ├── CANCELLATION.csv     # 442 voluntary cancellation records
     │   ├── TDR_FILING.csv       # 1 approved TDR claim with verification audit
-    │   ├── REFUND.csv           # 443 processed refund transactions
-    │   ├── CHART_SNAPSHOT.csv   # Immutable chart manifest snapshot
+    │   ├── REFUND.csv           # 436 processed refund transactions (each on the payment of its own PNR)
+    │   ├── CHART_SNAPSHOT.csv   # Header only: no chart is prepared in the seed, sp_prepare_chart writes the snapshot
     │   ├── TICKET_VERIFICATION.csv # Conductor handheld ticket verification log
     │   ├── FINE.csv             # 3 on-spot penalty receipts
     │   ├── INCIDENT.csv         # 2 station and onboard incident records
@@ -94,8 +94,8 @@ database/
 | `RESERVATION` | **34,282** | Confirmed non-overlapping seat allocations, RAC positions, and WL positions |
 | `PAYMENT` | **14,747** | Razorpay TEST mode transactions |
 | `CANCELLATION` | **442** | ~3% voluntary cancellations with slab deductions |
-| `REFUND` | **443** | Processed refunds for cancellations and approved TDR |
-| `CHART_SNAPSHOT` | **180** | Immutable manifest snapshot for run 119 on 2026-10-19 |
+| `REFUND` | **436** | Processed refunds for cancellations and approved TDR. Every `payment_id` belongs to the same PNR as its cancellation or TDR, and no payment is refunded for more than it paid (checked by the seed validator and by a query after loading) |
+| `CHART_SNAPSHOT` | **0** | Empty on purpose. The seed is frozen at 2026-10-17 19:15 and `chart_prepared_at` is NULL on all 350 runs, so no run may own a snapshot yet. Demo Story 4 (run 1111, Train 119) writes it by calling `sp_prepare_chart` |
 | `STAFF` | **3** | TC Vikram Singh, Station Supt Sunita Rao, Platform Insp Ramesh Nair |
 | `STAFF_ASSIGNMENT` | **3** | Shift assignments (`TRAIN_DUTY`, `STATION_DUTY`, `COUNTER_DUTY`) |
 | `ADMIN` | **1** | Master Administrator Rajesh Gupta (`SUPER_ADMIN`) |
@@ -135,3 +135,7 @@ node database/seed/step1_clean.js && node database/seed/step2_remap.js && node d
 
 ### Rolling the Booking Window Forward
 The script `database/seed/step3_generate.js` uses dynamic date parameterization (`dates` array). To roll the 7-day window forward in the future, simply update the base date string; the deterministic random generator guarantees that identical fill plans and booking distributions are reproduced seamlessly.
+
+## Demo accounts (final round)
+
+`USER_ACCOUNT.csv` rows 50001 to 50007 and every synthetic passenger use the scrypt hash of `Demo@123`. Logins: `passenger@rrms.in` (50001), `chain@rrms.in` (50002, Aadhaar verified), staff `TC101` = `EMP-TC-101` (50004), admin `admin@rrms.in` (50007). `STAFF_ASSIGNMENT.csv` has three standing `COUNTER_DUTY` rows (2026 to 2036). The generator `seed/step1_clean.js` writes the same accounts.

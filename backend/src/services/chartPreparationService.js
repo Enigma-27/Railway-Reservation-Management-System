@@ -1,6 +1,6 @@
 const pool = require('../config/mysql');
 const AppError = require('../utils/appError');
-const { processGatewayRefund } = require('./gatewayRefundService');
+const { processRefundsByIds } = require('./gatewayRefundService');
 
 /**
  * Reusable Chart Preparation Function
@@ -49,7 +49,10 @@ async function prepareChartForSchedule(scheduleId, callerUserId = null) {
     );
 
     const [purgeRows] = await pool.query(
-      `SELECT COUNT(*) AS purge_count, COALESCE(SUM(r.amount), 0) AS purge_amount
+      `SELECT COUNT(*) AS purge_count,
+              COALESCE(SUM(CASE WHEN r.status = 'PROCESSED' THEN r.amount END), 0) AS purge_amount,
+              COALESCE(SUM(CASE WHEN r.status = 'PENDING' THEN r.amount END), 0) AS purge_pending,
+              COALESCE(SUM(CASE WHEN r.status = 'FAILED' THEN r.amount END), 0) AS purge_failed
        FROM REFUND r
        JOIN PAYMENT p ON r.payment_id = p.payment_id
        JOIN BOOKING b ON p.pnr = b.pnr
@@ -64,11 +67,10 @@ async function prepareChartForSchedule(scheduleId, callerUserId = null) {
       chartPreparedAt: sched.chart_prepared_at,
       summary: {
         activeHoldsCancelled: 0,
-        unusedQuotaSeatsReleased: 0,
-        autoUpgradesProcessed: 0,
-        oldClassPromotionsTriggered: 0,
         waitlistedPassengersCancelled: Number(purgeRows[0].purge_count || 0),
         totalRefundsDisbursed: Number(Number(purgeRows[0].purge_amount || 0).toFixed(2)),
+        totalRefundsPending: Number(Number(purgeRows[0].purge_pending || 0).toFixed(2)),
+        totalRefundsFailed: Number(Number(purgeRows[0].purge_failed || 0).toFixed(2)),
         chartSnapshotRowsPersisted: Number(snapCountRows[0].snapshot_count || 0)
       }
     };
@@ -90,68 +92,71 @@ async function prepareChartForSchedule(scheduleId, callerUserId = null) {
   const [maxRefundRows] = await pool.query('SELECT COALESCE(MAX(refund_id), 0) AS max_id FROM REFUND');
   const maxRefundIdBefore = maxRefundRows[0].max_id;
 
-  // Call sp_prepare_chart with p_manage_tx = 1
-  await pool.query(
-    'CALL sp_prepare_chart(?, 1, @out_snapshot_count);',
-    [schedId]
-  );
-
-  const [[{ out_snapshot_count }]] = await pool.query(
-    'SELECT @out_snapshot_count AS out_snapshot_count;'
-  );
+  // Call sp_prepare_chart with p_manage_tx = 1.
+  // CALL and SELECT @out must run on the SAME connection (session variables are per connection).
+  // sp_prepare_chart rolls back and raises the SQL error if anything fails, so it arrives here as a thrown error.
+  let out_snapshot_count;
+  const chartConn = await pool.getConnection();
+  try {
+    await chartConn.query(
+      'CALL sp_prepare_chart(?, 1, @out_snapshot_count);',
+      [schedId]
+    );
+    const [[outRow]] = await chartConn.query(
+      'SELECT @out_snapshot_count AS out_snapshot_count;'
+    );
+    out_snapshot_count = outRow.out_snapshot_count;
+  } catch (procErr) {
+    console.error(`[Chart Preparation] sp_prepare_chart failed for schedule ${schedId}:`, procErr.message);
+    throw new AppError(
+      'INTERNAL_SERVER_ERROR',
+      'Chart preparation failed in the database and was rolled back. No changes were saved.',
+      500
+    );
+  } finally {
+    chartConn.release();
+  }
 
   // Fetch updated schedule
   const [updatedSchedRows] = await pool.query(
     'SELECT chart_prepared_at FROM TRAIN_SCHEDULE WHERE schedule_id = ?',
     [schedId]
   );
-  const chartPreparedAt = updatedSchedRows[0].chart_prepared_at || sched.chart_prepared_at;
+  const chartPreparedAt = updatedSchedRows[0].chart_prepared_at;
 
-  // Find newly created WAITLIST_PURGE refund rows
+  // Safety net: if the chart time is still empty after the call, nothing was saved: report an error, not success.
+  if (!chartPreparedAt || out_snapshot_count === null || out_snapshot_count === undefined) {
+    throw new AppError(
+      'INTERNAL_SERVER_ERROR',
+      'Chart preparation failed in the database and was rolled back. No changes were saved.',
+      500
+    );
+  }
+
+  // Find newly created WAITLIST_PURGE refund rows (SQL wrote them as PENDING)
   const [newRefundRows] = await pool.query(
-    `SELECT r.refund_id, r.payment_id, r.amount, p.pnr, p.method, p.gateway_payment_id
+    `SELECT r.refund_id
      FROM REFUND r
-     JOIN PAYMENT p ON r.payment_id = p.payment_id
      WHERE r.refund_id > ? AND r.reason = 'WAITLIST_PURGE'
      ORDER BY r.refund_id ASC`,
     [maxRefundIdBefore]
   );
 
+  // Move each row through the gateway service. A failure leaves that row FAILED for the retry timer.
+  await processRefundsByIds(newRefundRows.map(r => r.refund_id));
+
   let totalRefunds = 0;
-  // Group new refunds by payment_id
-  const refundsByPayment = new Map();
-  for (const r of newRefundRows) {
-    const payId = r.payment_id;
-    const amt = Number(r.amount);
-    totalRefunds += amt;
-
-    if (!refundsByPayment.has(payId)) {
-      refundsByPayment.set(payId, {
-        pnr: r.pnr,
-        paymentMethod: r.method,
-        gatewayPaymentId: r.gateway_payment_id,
-        amountInRupees: 0,
-        refundIds: []
-      });
-    }
-    const group = refundsByPayment.get(payId);
-    group.amountInRupees += amt;
-    group.refundIds.push(r.refund_id);
-  }
-
-  // Call shared gateway refund helper once per Razorpay payment
-  for (const group of refundsByPayment.values()) {
-    try {
-      await processGatewayRefund({
-        pnr: group.pnr,
-        paymentMethod: group.paymentMethod,
-        gatewayPaymentId: group.gatewayPaymentId,
-        amountInRupees: group.amountInRupees.toFixed(2),
-        refundIds: group.refundIds,
-        reason: 'WAITLIST_PURGE'
-      });
-    } catch (gwErr) {
-      console.warn(`[Chart Preparation] Gateway refund failed for payment ${group.gatewayPaymentId}:`, gwErr.message);
+  let totalPending = 0;
+  let totalFailed = 0;
+  if (newRefundRows.length > 0) {
+    const [moneyRows] = await pool.query(
+      `SELECT status, COALESCE(SUM(amount), 0) AS total FROM REFUND WHERE refund_id IN (?) GROUP BY status`,
+      [newRefundRows.map(r => r.refund_id)]
+    );
+    for (const m of moneyRows) {
+      if (m.status === 'PROCESSED') totalRefunds = Number(m.total);
+      else if (m.status === 'PENDING') totalPending = Number(m.total);
+      else if (m.status === 'FAILED') totalFailed = Number(m.total);
     }
   }
 
@@ -162,11 +167,10 @@ async function prepareChartForSchedule(scheduleId, callerUserId = null) {
     chartPreparedAt,
     summary: {
       activeHoldsCancelled: Number(activeHoldsBefore),
-      unusedQuotaSeatsReleased: 0,
-      autoUpgradesProcessed: 0,
-      oldClassPromotionsTriggered: 0,
       waitlistedPassengersCancelled: newRefundRows.length > 0 ? newRefundRows.length : Number(wlCountBefore),
       totalRefundsDisbursed: Number(totalRefunds.toFixed(2)),
+      totalRefundsPending: Number(totalPending.toFixed(2)),
+      totalRefundsFailed: Number(totalFailed.toFixed(2)),
       chartSnapshotRowsPersisted: Number(out_snapshot_count || 0)
     }
   };

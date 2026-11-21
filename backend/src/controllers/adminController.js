@@ -1,8 +1,9 @@
 const pool = require('../config/mysql');
-const { processGatewayRefund } = require('../services/gatewayRefundService');
+const { processRefundsByIds, summarizeGatewayResult, refundMessage } = require('../services/gatewayRefundService');
 const { prepareChartForSchedule } = require('../services/chartPreparationService');
 const { hashBcryptPassword } = require('../utils/passwordUtils');
 const { createNotification } = require('../services/notificationService');
+const { CANONICAL_ERROR_MESSAGES } = require('../middleware/errorHandler');
 
 const VALID_SETTING_KEYS = {
   BOOKING_WINDOW_DAYS: 'number',
@@ -17,7 +18,25 @@ const VALID_SETTING_KEYS = {
   MAX_PASSENGERS_PER_PNR_TATKAL: 'number',
   MAX_TICKETS_PER_MONTH: 'number',
   MAX_TICKETS_PER_MONTH_AADHAAR_VERIFIED: 'number',
-  MIN_CHARGEABLE_DISTANCE_KM: 'number'
+  MIN_CHARGEABLE_DISTANCE_KM: 'number',
+  SENIOR_AGE_MALE: 'number',
+  SENIOR_AGE_FEMALE: 'number',
+  CONTACT_HELPLINE: 'text',
+  CONTACT_EMAIL: 'text',
+  CONTACT_ADDRESS: 'text'
+};
+
+// Allowed range per setting. Keep in step with fn_setting_value_valid in database/mysql/02_functions.sql
+// (the database refuses a bad value too, through the SETTING triggers).
+const SETTING_LIMITS = {
+  GST_RATE_AC: { kind: 'decimal', min: 0, max: 1, hint: 'a number from 0 to 1 (0.05 means 5 percent)' },
+  INSURANCE_PREMIUM_PER_PASSENGER: { kind: 'decimal', min: 0, max: 10000, hint: 'a number from 0 to 10000' },
+  CLERKAGE_PER_PASSENGER: { kind: 'decimal', min: 0, max: 10000, hint: 'a number from 0 to 10000' },
+  MIN_CHARGEABLE_DISTANCE_KM: { kind: 'integer', min: 0, max: 10000, hint: 'a whole number from 0 to 10000' },
+  BOOKING_WINDOW_DAYS: { kind: 'integer', min: 0, max: 365, hint: 'a whole number from 0 to 365' },
+  HOLD_MINUTES: { kind: 'integer', min: 1, max: 1440, hint: 'a whole number from 1 to 1440' },
+  SENIOR_AGE_MALE: { kind: 'integer', min: 1, max: 120, hint: 'a whole number from 1 to 120' },
+  SENIOR_AGE_FEMALE: { kind: 'integer', min: 1, max: 120, hint: 'a whole number from 1 to 120' }
 };
 
 /**
@@ -144,14 +163,23 @@ async function reviewTdr(req, res, next) {
       });
     }
 
-    await pool.query(
-      'CALL sp_review_tdr(?, ?, ?, ?, ?, 1, @out_refund_id, @out_status)',
-      [tdrRefNo, adminId, status, parsedRefundAmount, remarks || null]
-    );
-
-    const [[{ out_refund_id, out_status }]] = await pool.query(
-      'SELECT @out_refund_id AS out_refund_id, @out_status AS out_status'
-    );
+    // CALL and SELECT @out must run on the SAME connection (session variables are per connection)
+    let out_refund_id;
+    let out_status;
+    const reviewConn = await pool.getConnection();
+    try {
+      await reviewConn.query(
+        'CALL sp_review_tdr(?, ?, ?, ?, ?, 1, @out_refund_id, @out_status)',
+        [tdrRefNo, adminId, status, parsedRefundAmount, remarks || null]
+      );
+      const [[outRow]] = await reviewConn.query(
+        'SELECT @out_refund_id AS out_refund_id, @out_status AS out_status'
+      );
+      out_refund_id = outRow.out_refund_id;
+      out_status = outRow.out_status;
+    } finally {
+      reviewConn.release();
+    }
 
     if (out_status === 'NOT_FOUND') {
       return res.status(404).json({
@@ -189,6 +217,16 @@ async function reviewTdr(req, res, next) {
         error: {
           code: 'BAD_REQUEST',
           message: 'Refund amount is invalid or exceeds passenger fare line'
+        }
+      });
+    }
+
+    if (out_status === 'REFUND_EXCEEDS_PAYMENT') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'REFUND_EXCEEDS_PAYMENT',
+          message: CANONICAL_ERROR_MESSAGES.REFUND_EXCEEDS_PAYMENT
         }
       });
     }
@@ -240,32 +278,16 @@ async function reviewTdr(req, res, next) {
     }
 
     if (out_status === 'APPROVED') {
-      // Find PNR and payment record
-      const [tdrRows] = await pool.query('SELECT pnr FROM TDR_FILING WHERE tdr_ref_no = ?', [tdrRefNo]);
-      const tdrPnr = tdrRows.length > 0 ? tdrRows[0].pnr : null;
-
+      // SQL wrote the REFUND row as PENDING; the gateway service moves it to PROCESSED or FAILED
       let gatewayRefund = 'SKIPPED';
-      if (tdrPnr) {
-        const [payRows] = await pool.query(
-          'SELECT payment_id, method, gateway_payment_id FROM PAYMENT WHERE pnr = ? AND status = "SUCCESS" ORDER BY paid_at DESC, payment_id DESC LIMIT 1',
-          [tdrPnr]
-        );
-        if (payRows.length > 0 && payRows[0].gateway_payment_id) {
-          try {
-            const gwRes = await processGatewayRefund({
-              pnr: tdrPnr,
-              paymentMethod: payRows[0].method,
-              gatewayPaymentId: payRows[0].gateway_payment_id,
-              amountInRupees: parsedRefundAmount,
-              refundIds: [out_refund_id],
-              reason: 'TDR_APPROVED'
-            });
-            gatewayRefund = gwRes.status;
-          } catch (gwErr) {
-            gatewayRefund = 'FAILED';
-          }
-        }
+      let refundStatus = 'PENDING';
+      if (out_refund_id) {
+        const gwResults = await processRefundsByIds([out_refund_id]);
+        gatewayRefund = summarizeGatewayResult(gwResults);
+        const [[freshRefund]] = await pool.query('SELECT status FROM REFUND WHERE refund_id = ?', [out_refund_id]);
+        if (freshRefund) refundStatus = freshRefund.status;
       }
+      const refundNote = refundMessage(gatewayRefund);
 
       return res.status(200).json({
         success: true,
@@ -276,9 +298,10 @@ async function reviewTdr(req, res, next) {
           refund: {
             refundId: out_refund_id,
             reason: 'TDR_APPROVED',
-            status: 'PROCESSED'
+            status: refundStatus
           },
-          gatewayRefund
+          gatewayRefund,
+          ...(refundNote ? { refundMessage: refundNote } : {})
         }
       });
     }
@@ -384,18 +407,45 @@ async function updateSetting(req, res, next) {
           }
         });
       }
-    } else if (expectedType === 'number') {
-      const num = Number(rawVal);
-      if (isNaN(num) || num <= 0) {
+    } else if (expectedType === 'text') {
+      // Free text shown to visitors (contact panel): 3 to 200 characters, no angle brackets
+      const text = String(rawVal).trim();
+      if (text.length < 3 || text.length > 200 || /[<>]/.test(text)) {
         return res.status(400).json({
           success: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: `Setting ${key} must be a positive number`
-          }
+          error: { code: 'VALIDATION_ERROR', message: `Setting ${key} must be 3 to 200 characters of plain text` }
         });
       }
-      valStr = String(rawVal);
+      valStr = text;
+    } else if (expectedType === 'number') {
+      const limits = SETTING_LIMITS[key];
+      const text = String(rawVal).trim();
+      if (limits) {
+        const pattern = limits.kind === 'integer' ? /^[0-9]{1,6}$/ : /^[0-9]{1,10}(\.[0-9]{1,6})?$/;
+        const numeric = pattern.test(text) ? Number(text) : NaN;
+        if (isNaN(numeric) || numeric < limits.min || numeric > limits.max) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: `Setting ${key} must be ${limits.hint}`
+            }
+          });
+        }
+        valStr = text;
+      } else {
+        const num = Number(rawVal);
+        if (isNaN(num) || num <= 0) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: `Setting ${key} must be a positive number`
+            }
+          });
+        }
+        valStr = String(rawVal);
+      }
     }
 
     // Update setting (trigger trg_audit_setting_change fires and inserts into AUDIT_LOG)
@@ -1414,7 +1464,328 @@ async function getAdminSchedules(req, res, next) {
   }
 }
 
+// Real account_status values from USER_ACCOUNT in database/mysql/01_schema.sql
+const VALID_ACCOUNT_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING'];
+
+/**
+ * PUT /api/admin/users/:id/status
+ * Body: { status } (the admin frontend sends { accountStatus, reason }; both names are accepted).
+ * - Refuses to change the logged-in admin's own account
+ * - Refuses to touch any account whose role is ADMIN
+ * - Writes an AUDIT_LOG row with old and new status (and the reason text if one was given)
+ */
+async function updateUserStatus(req, res, next) {
+  let conn;
+  try {
+    const userId = Number(req.params.id);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid user id' } });
+    }
+
+    const newStatus = req.body.status || req.body.accountStatus;
+    if (!VALID_ACCOUNT_STATUSES.includes(newStatus)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'BAD_REQUEST', message: `Invalid status. Must be one of: ${VALID_ACCOUNT_STATUSES.join(', ')}` }
+      });
+    }
+
+    const reason = typeof req.body.reason === 'string' ? req.body.reason.trim().slice(0, 255) : null;
+
+    if (userId === Number(req.user.userId)) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'You cannot change the status of your own account' }
+      });
+    }
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [rows] = await conn.query(
+      'SELECT user_id, role, account_status FROM USER_ACCOUNT WHERE user_id = ? FOR UPDATE',
+      [userId]
+    );
+    if (rows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
+    }
+    const target = rows[0];
+    if (target.role === 'ADMIN') {
+      await conn.rollback();
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Administrator accounts cannot be changed here' }
+      });
+    }
+
+    await conn.query('UPDATE USER_ACCOUNT SET account_status = ? WHERE user_id = ?', [newStatus, userId]);
+
+    await conn.query(
+      `INSERT INTO AUDIT_LOG (user_id, action, table_name, record_id, old_value, new_value, logged_at)
+       VALUES (?, 'UPDATE_USER_STATUS', 'USER_ACCOUNT', ?, ?, ?, NOW())`,
+      [
+        req.user.userId,
+        String(userId),
+        JSON.stringify({ accountStatus: target.account_status }),
+        JSON.stringify({ accountStatus: newStatus, reason })
+      ]
+    );
+
+    const [updated] = await conn.query(
+      `SELECT user_id AS userId, user_id, full_name AS name, full_name, email, phone, role,
+              account_status AS accountStatus, account_status,
+              DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+              DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+         FROM USER_ACCOUNT WHERE user_id = ?`,
+      [userId]
+    );
+    await conn.commit();
+
+    return res.status(200).json({ success: true, data: updated[0] });
+  } catch (error) {
+    if (conn) {
+      try { await conn.rollback(); } catch (_) {}
+    }
+    next(error);
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Platforms (PLATFORM table: platform_id, station_id, platform_no, UNIQUE (station_id, platform_no))
+// The table has no status or facilities column, so those are not stored. Responses keep the same
+// shape as GET /api/admin/platforms (status 'ACTIVE', facilities []).
+// ----------------------------------------------------------------------------
+
+const PLATFORM_SELECT = `
+  SELECT platform_id AS platformId, platform_id, station_id AS stationId, station_id,
+         platform_no AS platformNumber, platform_no, 'ACTIVE' AS status, JSON_ARRAY() AS facilities
+    FROM PLATFORM`;
+
+function parsePositiveInt(raw) {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+async function writePlatformAudit(conn, userId, action, platformId, oldValue, newValue) {
+  await conn.query(
+    `INSERT INTO AUDIT_LOG (user_id, action, table_name, record_id, old_value, new_value, logged_at)
+     VALUES (?, ?, 'PLATFORM', ?, ?, ?, NOW())`,
+    [
+      userId,
+      action,
+      String(platformId),
+      oldValue ? JSON.stringify(oldValue) : null,
+      newValue ? JSON.stringify(newValue) : null
+    ]
+  );
+}
+
+/**
+ * POST /api/admin/platforms  Body: { stationId, platformNumber }
+ */
+async function createPlatform(req, res, next) {
+  let conn;
+  try {
+    const stationId = parsePositiveInt(req.body.stationId || req.body.station_id);
+    const platformNo = parsePositiveInt(req.body.platformNumber || req.body.platform_no);
+    if (!stationId) {
+      return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'stationId must be a positive number' } });
+    }
+    if (!platformNo) {
+      return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'platformNumber must be a positive number' } });
+    }
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [stationRows] = await conn.query('SELECT station_id FROM STATION WHERE station_id = ?', [stationId]);
+    if (stationRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Station not found' } });
+    }
+
+    const [dupe] = await conn.query(
+      'SELECT platform_id FROM PLATFORM WHERE station_id = ? AND platform_no = ?',
+      [stationId, platformNo]
+    );
+    if (dupe.length > 0) {
+      await conn.rollback();
+      return res.status(409).json({
+        success: false,
+        error: { code: 'CONFLICT', message: `Platform ${platformNo} already exists at this station` }
+      });
+    }
+
+    const [maxRows] = await conn.query('SELECT COALESCE(MAX(platform_id), 0) + 1 AS next_id FROM PLATFORM FOR UPDATE');
+    const newId = maxRows[0].next_id;
+
+    await conn.query(
+      'INSERT INTO PLATFORM (platform_id, station_id, platform_no) VALUES (?, ?, ?)',
+      [newId, stationId, platformNo]
+    );
+    await writePlatformAudit(conn, req.user.userId, 'CREATE_PLATFORM', newId, null, { stationId, platformNo });
+
+    const [rows] = await conn.query(`${PLATFORM_SELECT} WHERE platform_id = ?`, [newId]);
+    await conn.commit();
+
+    return res.status(201).json({ success: true, data: rows[0] });
+  } catch (error) {
+    if (conn) {
+      try { await conn.rollback(); } catch (_) {}
+    }
+    next(error);
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+/**
+ * PUT /api/admin/platforms/:id  Body: { stationId?, platformNumber? }
+ */
+async function updatePlatform(req, res, next) {
+  let conn;
+  try {
+    const platformId = parsePositiveInt(req.params.id);
+    if (!platformId) {
+      return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid platform id' } });
+    }
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [existing] = await conn.query(
+      'SELECT platform_id, station_id, platform_no FROM PLATFORM WHERE platform_id = ? FOR UPDATE',
+      [platformId]
+    );
+    if (existing.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Platform not found' } });
+    }
+    const current = existing[0];
+
+    const rawStation = req.body.stationId || req.body.station_id;
+    const rawNumber = req.body.platformNumber || req.body.platform_no;
+    const stationId = rawStation !== undefined ? parsePositiveInt(rawStation) : current.station_id;
+    const platformNo = rawNumber !== undefined ? parsePositiveInt(rawNumber) : current.platform_no;
+    if (!stationId || !platformNo) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        error: { code: 'BAD_REQUEST', message: 'stationId and platformNumber must be positive numbers' }
+      });
+    }
+
+    if (stationId !== current.station_id || platformNo !== current.platform_no) {
+      const [stationRows] = await conn.query('SELECT station_id FROM STATION WHERE station_id = ?', [stationId]);
+      if (stationRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Station not found' } });
+      }
+      const [dupe] = await conn.query(
+        'SELECT platform_id FROM PLATFORM WHERE station_id = ? AND platform_no = ? AND platform_id <> ?',
+        [stationId, platformNo, platformId]
+      );
+      if (dupe.length > 0) {
+        await conn.rollback();
+        return res.status(409).json({
+          success: false,
+          error: { code: 'CONFLICT', message: `Platform ${platformNo} already exists at this station` }
+        });
+      }
+
+      await conn.query(
+        'UPDATE PLATFORM SET station_id = ?, platform_no = ? WHERE platform_id = ?',
+        [stationId, platformNo, platformId]
+      );
+      await writePlatformAudit(
+        conn, req.user.userId, 'UPDATE_PLATFORM', platformId,
+        { stationId: current.station_id, platformNo: current.platform_no },
+        { stationId, platformNo }
+      );
+    }
+
+    const [rows] = await conn.query(`${PLATFORM_SELECT} WHERE platform_id = ?`, [platformId]);
+    await conn.commit();
+
+    return res.status(200).json({ success: true, data: rows[0] });
+  } catch (error) {
+    if (conn) {
+      try { await conn.rollback(); } catch (_) {}
+    }
+    next(error);
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+/**
+ * DELETE /api/admin/platforms/:id
+ * 409 if a maintenance task points to the platform (that foreign key would delete the task)
+ * or a train route stop at the same station uses this platform number.
+ */
+async function deletePlatform(req, res, next) {
+  let conn;
+  try {
+    const platformId = parsePositiveInt(req.params.id);
+    if (!platformId) {
+      return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid platform id' } });
+    }
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [existing] = await conn.query(
+      'SELECT platform_id, station_id, platform_no FROM PLATFORM WHERE platform_id = ? FOR UPDATE',
+      [platformId]
+    );
+    if (existing.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Platform not found' } });
+    }
+    const current = existing[0];
+
+    const [maintRefs] = await conn.query('SELECT COUNT(*) AS cnt FROM MAINTENANCE WHERE platform_id = ?', [platformId]);
+    const [stopRefs] = await conn.query(
+      'SELECT COUNT(*) AS cnt FROM ROUTE_STOP WHERE station_id = ? AND platform_number = ?',
+      [current.station_id, current.platform_no]
+    );
+    if (Number(maintRefs[0].cnt) > 0 || Number(stopRefs[0].cnt) > 0) {
+      await conn.rollback();
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'CONFLICT',
+          message: 'This platform is still used by maintenance tasks or train route stops and cannot be deleted.'
+        }
+      });
+    }
+
+    await conn.query('DELETE FROM PLATFORM WHERE platform_id = ?', [platformId]);
+    await writePlatformAudit(
+      conn, req.user.userId, 'DELETE_PLATFORM', platformId,
+      { stationId: current.station_id, platformNo: current.platform_no }, null
+    );
+    await conn.commit();
+
+    return res.status(200).json({ success: true, data: { platformId, deleted: true } });
+  } catch (error) {
+    if (conn) {
+      try { await conn.rollback(); } catch (_) {}
+    }
+    next(error);
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
 module.exports = {
+  updateUserStatus,
+  createPlatform,
+  updatePlatform,
+  deletePlatform,
   requireAdminRole,
   getAdminTdrs,
   reviewTdr,

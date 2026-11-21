@@ -5,6 +5,7 @@ const {
   requirePassengerRole,
   fileTdr,
   getMyTdrs,
+  getEligibility,
   getTdrByRefNo
 } = require('../controllers/tdrController');
 
@@ -21,6 +22,9 @@ router.post('/', fileTdr);
 
 // GET /api/tdr - List own TDRs
 router.get('/', getMyTdrs);
+
+// GET /api/tdr/eligibility/:pnr - which TDR reasons each passenger of the PNR can use right now (read only)
+router.get('/eligibility/:pnr', getEligibility);
 
 // GET /api/tdr/:tdrRefNo - Get specific TDR (own only)
 router.get('/:tdrRefNo', getTdrByRefNo);

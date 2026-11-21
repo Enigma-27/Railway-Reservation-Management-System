@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useStaff } from '../context/StaffContext';
 import { StatusBadge } from '../components/StatusBadge';
 import { Search, CheckCircle, AlertTriangle, XCircle, FileWarning, Loader2 } from 'lucide-react';
@@ -9,12 +9,24 @@ interface ScannerPageProps {
   onIssueFinePrefill?: (name: string, idRef: string, reason: string) => void;
 }
 
+type PaxRow = PnrBookingDetails['passengers'][number];
+
+/** Boarding state shown for a passenger: BOARDED and NO_SHOW are saved on the reservation in the database. */
+function boardingOf(p: PaxRow): 'BOARDED' | 'NO_SHOW' | 'NOT_VERIFIED' {
+  return p.status === 'BOARDED' ? 'BOARDED' : p.status === 'NO_SHOW' ? 'NO_SHOW' : 'NOT_VERIFIED';
+}
+
+/**
+ * PNR and ID scanner. Shows EVERY passenger of the PNR, each with their own verify / board / no-show buttons.
+ * Everything shown (ticket status, boarding result, verification stamp) is read from the database, so it is
+ * still there after a page reload.
+ */
 export const ScannerPage: React.FC<ScannerPageProps> = ({ initialPnr = '', onIssueFinePrefill }) => {
-  const { data, markPassengerBoarding, verifyPassenger, boardPassengerApi, noShowPassengerApi } = useStaff();
+  const { data, verifyPassenger, boardPassengerApi, noShowPassengerApi, refreshAssignmentAndChart } = useStaff();
   const [pnrInput, setPnrInput] = useState<string>(initialPnr);
-  const [notes, setNotes] = useState<string>('');
+  const [notes, setNotes] = useState<Record<number, string>>({});
   const [searching, setSearching] = useState<boolean>(false);
-  const [actionLoading, setActionLoading] = useState<boolean>(false);
+  const [busyNo, setBusyNo] = useState<number | null>(null);
   const [liveBooking, setLiveBooking] = useState<PnrBookingDetails | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
 
@@ -22,116 +34,81 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({ initialPnr = '', onIss
     if (initialPnr) setPnrInput(initialPnr);
   }, [initialPnr]);
 
-  // Live PNR fetch when 10 digits entered
+  const load = useCallback(async (pnr: string, quiet = false) => {
+    if (!quiet) { setSearching(true); setSearchError(null); }
+    try {
+      const res = await staffApiService.getBookingByPnr(pnr);
+      setLiveBooking(res && res.pnr ? res : null);
+    } catch (err: any) {
+      setLiveBooking(null);
+      setSearchError(err.message || 'PNR not found in live system');
+    } finally {
+      if (!quiet) setSearching(false);
+    }
+  }, []);
+
+  // Look the PNR up as soon as 10 digits are typed
   useEffect(() => {
     const trimmed = pnrInput.trim();
     if (trimmed.length === 10) {
-      setSearching(true);
-      setSearchError(null);
-      staffApiService.getBookingByPnr(trimmed)
-        .then(res => {
-          if (res && res.pnr) {
-            setLiveBooking(res);
-          } else {
-            setLiveBooking(null);
-          }
-        })
-        .catch(err => {
-          setLiveBooking(null);
-          setSearchError(err.message || 'PNR not found in live system');
-        })
-        .finally(() => {
-          setSearching(false);
-        });
+      load(trimmed);
     } else {
       setLiveBooking(null);
       setSearchError(null);
     }
-  }, [pnrInput]);
+  }, [pnrInput, load]);
 
-  const localPassenger = data.manifest.find(m => m.pnr === pnrInput.trim() || (pnrInput.trim().length >= 4 && m.pnr.includes(pnrInput.trim())));
-
-  // Unified passenger view: live booking's first passenger if found, or local manifest passenger
-  const passenger = liveBooking ? {
-    manifestId: localPassenger ? localPassenger.manifestId : 9999,
-    name: liveBooking.passengers?.[0]?.name || 'Passenger',
-    pnr: liveBooking.pnr,
-    age: liveBooking.passengers?.[0]?.age || 30,
-    gender: liveBooking.passengers?.[0]?.gender || 'MALE',
-    quota: liveBooking.quota,
-    coachNumber: liveBooking.passengers?.[0]?.coachNumber || null,
-    seatNumber: liveBooking.passengers?.[0]?.seatNumber || null,
-    berthType: liveBooking.passengers?.[0]?.berthType || null,
-    classType: liveBooking.classType || '3A',
-    bookingStatus: (liveBooking.passengers?.[0]?.status as any) || liveBooking.bookingStatus,
-    boardingStatus: localPassenger ? localPassenger.boardingStatus : 'NOT_VERIFIED',
-    verificationStatus: localPassenger ? localPassenger.verificationStatus : 'UNCHECKED',
-    verificationNotes: localPassenger ? localPassenger.verificationNotes : '',
-    idProofType: 'GOVT_ID',
-    idProofReference: `PNR-${liveBooking.pnr}`,
-    boardingStationId: 1,
-    destinationStationId: 2,
-    passengerNo: liveBooking.passengers?.[0]?.passengerNo || 1
-  } : localPassenger ? {
-    ...localPassenger,
-    passengerNo: localPassenger.passengerId || 1
-  } : null;
-
-  const handleDecision = async (verifyStatus: 'VALID' | 'INVALID' | 'MISMATCH', boardStatus: 'BOARDED' | 'NO_SHOW' | 'NOT_VERIFIED') => {
-    if (!passenger || actionLoading) return;
-    setActionLoading(true);
-
+  const decide = async (p: PaxRow, verifyStatus: 'VALID' | 'INVALID' | 'MISMATCH', action: 'BOARD' | 'NO_SHOW' | 'NONE') => {
+    if (!liveBooking || busyNo !== null) return;
+    setBusyNo(p.passengerNo);
     try {
-      if (localPassenger) {
-        await markPassengerBoarding(localPassenger.manifestId, boardStatus, verifyStatus, notes);
-      } else {
-        // Direct server API calls for live PNR
-        await verifyPassenger(passenger.pnr, passenger.passengerNo, verifyStatus, notes);
-        if (boardStatus === 'BOARDED') {
-          await boardPassengerApi(passenger.pnr, passenger.passengerNo);
-        } else if (boardStatus === 'NO_SHOW') {
-          await noShowPassengerApi(passenger.pnr, passenger.passengerNo);
-        }
+      const v = await verifyPassenger(liveBooking.pnr, p.passengerNo, verifyStatus, notes[p.passengerNo] || '');
+      if (v.success) {
+        if (action === 'BOARD') await boardPassengerApi(liveBooking.pnr, p.passengerNo);
+        if (action === 'NO_SHOW') await noShowPassengerApi(liveBooking.pnr, p.passengerNo);
       }
     } finally {
-      setActionLoading(false);
+      setBusyNo(null);
+      // Read the saved result back from the database (and refresh the chart: a no-show promotes the queue)
+      await load(liveBooking.pnr, true);
+      refreshAssignmentAndChart();
     }
   };
 
-  const samplePnrs = ['2849102841', '5183920194', '4920194820', '7729103841'];
+  // Quick picks are the PNRs that really are on this officer's chart (no built-in sample PNRs)
+  const chartPnrs = Array.from(new Set(data.manifest.map(m => m.pnr))).slice(0, 4);
 
   return (
     <div className="space-y-6">
-      {/* Scanner Hero - Matching Admin Style */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center flex flex-col items-center justify-center shadow-xs">
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-8 text-center flex flex-col items-center justify-center shadow-xs">
         <div className="w-14 h-14 rounded-full bg-orange-50 text-orange-600 border border-orange-200 flex items-center justify-center mb-3 text-2xl shadow-sm">
           <Search className="w-7 h-7" />
         </div>
         <h3 className="text-xl font-bold text-slate-900">Digital Ticket & PNR Inspection Terminal</h3>
         <p className="text-xs text-slate-500 max-w-lg mt-1 mb-5">
-          Scan or input the 10-digit Passenger Name Record (PNR) to inspect authorized identity proof and authenticate travel boarding.
+          Scan or input the 10-digit Passenger Name Record (PNR). Every passenger on the ticket is listed so each one can be checked and boarded.
         </p>
 
         <div className="w-full max-w-md">
           <input
             type="text"
+            inputMode="numeric"
             value={pnrInput}
             onChange={(e) => setPnrInput(e.target.value)}
             placeholder="ENTER 10-DIGIT PNR..."
+            aria-label="PNR"
             className="w-full bg-slate-50 border border-slate-300 focus:border-orange-500 focus:bg-white rounded-xl px-4 py-3 text-center font-mono text-base font-bold tracking-widest text-slate-900 outline-none shadow-xs transition-all"
           />
         </div>
 
         <div className="flex items-center gap-2 mt-4 flex-wrap justify-center">
-          <span className="text-[11px] text-slate-400 font-medium">Quick Test PNRs:</span>
-          {samplePnrs.map(p => (
+          <span className="text-[11px] text-slate-500 font-medium">
+            {chartPnrs.length ? 'PNRs on your chart:' : 'No chart loaded yet: type a PNR.'}
+          </span>
+          {chartPnrs.map(p => (
             <button
               key={p}
-              onClick={() => {
-                setPnrInput(p);
-                const found = data.manifest.find(m => m.pnr === p);
-                if (found) setNotes(found.verificationNotes || '');
-              }}
+              onClick={() => setPnrInput(p)}
               className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-mono font-medium transition-all"
             >
               {p}
@@ -140,128 +117,131 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({ initialPnr = '', onIss
         </div>
       </div>
 
-      {/* Lookup Card */}
       {pnrInput.trim().length >= 4 && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs animate-in fade-in duration-200">
-          {!passenger ? (
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs">
+          {searching && <div className="text-center py-6 text-sm text-slate-500" role="status">Looking up PNR...</div>}
+
+          {!searching && !liveBooking && (
             <div className="text-center py-8">
-              <div className="text-4xl mb-2">⚠️</div>
+              <div className="text-4xl mb-2" aria-hidden="true">⚠️</div>
               <h4 className="text-base font-bold text-rose-600">PNR {pnrInput} Not Found Onboard</h4>
               <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                No active reservation located for this train trip. If passenger is travelling without valid booking, issue an on-spot ticketless penalty.
+                {searchError || 'Type all 10 digits.'} If a passenger is travelling without a valid booking, issue an on-spot ticketless penalty.
               </p>
-              {onIssueFinePrefill && (
+              {onIssueFinePrefill && pnrInput.trim().length === 10 && (
                 <button
                   onClick={() => onIssueFinePrefill('', pnrInput, 'TICKETLESS_TRAVEL')}
-                  className="mt-4 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold shadow-xs"
+                  className="mt-4 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-xs"
                 >
                   Issue Ticketless Travel Fine
                 </button>
               )}
             </div>
-          ) : (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-xl font-bold text-slate-900">{passenger.name}</h3>
-                    {passenger.coachNumber && passenger.seatNumber ? (
-                      <span className="font-mono text-sm font-bold bg-orange-50 border border-orange-200 text-orange-700 px-2.5 py-0.5 rounded-lg">
-                        {passenger.coachNumber}-{passenger.seatNumber}
-                      </span>
-                    ) : (
-                      <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg">Berth Pending</span>
-                    )}
-                    <StatusBadge status={passenger.bookingStatus} size="sm" />
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1 font-mono">
-                    PNR: <strong className="text-slate-800">{passenger.pnr}</strong> • {passenger.age}y / {passenger.gender} • Quota: <strong className="text-slate-800">{passenger.quota}</strong>
-                  </div>
-                </div>
+          )}
 
-                <div className="sm:text-right">
-                  <div className="text-[11px] font-semibold text-slate-400 uppercase">Boarding Status</div>
-                  <div className="mt-1">
-                    <StatusBadge status={passenger.boardingStatus} size="md" />
-                  </div>
+          {!searching && liveBooking && (
+            <div className="space-y-5">
+              <div className="pb-4 border-b border-slate-100">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-bold text-slate-900">PNR {liveBooking.pnr}</h3>
+                  <StatusBadge status={liveBooking.bookingStatus} size="sm" />
+                </div>
+                <div className="text-xs text-slate-600 mt-1">
+                  {liveBooking.trainNumber} {liveBooking.trainName} · {liveBooking.journeyDate} · Class {liveBooking.classType} · Quota {liveBooking.quota}
+                </div>
+                <div className="text-xs text-slate-600">
+                  {liveBooking.boardingStation?.stationName} ➔ {liveBooking.destinationStation?.stationName} · {liveBooking.passengers.length} passenger{liveBooking.passengers.length === 1 ? '' : 's'}
                 </div>
               </div>
 
-              {/* Passenger Attributes Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                  <div className="text-[11px] font-semibold text-slate-400 uppercase">Travel Sector & Class</div>
-                  <div className="text-sm font-bold text-slate-900 mt-1">
-                    {data.stations.find(s => s.stationId === passenger.boardingStationId)?.stationName || 'Mumbai Central'} ➔ {data.stations.find(s => s.stationId === passenger.destinationStationId)?.stationName || 'New Delhi'}
-                  </div>
-                  <div className="text-xs text-orange-600 font-medium mt-1">Class: {passenger.classType} • Berth: {passenger.berthType || 'None'}</div>
-                </div>
+              <ul className="space-y-4">
+                {liveBooking.passengers.map((p) => {
+                  const boarding = boardingOf(p);
+                  const canBoard = p.status === 'CONFIRMED' || p.status === 'RAC';
+                  const busy = busyNo === p.passengerNo;
+                  return (
+                    <li key={p.passengerNo} className="border border-slate-200 rounded-xl p-4 space-y-3" aria-label={`Passenger ${p.passengerNo}: ${p.name}`}>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-base font-bold text-slate-900">{p.passengerNo}. {p.name}</span>
+                            {p.coachNumber && p.seatNumber ? (
+                              <span className="font-mono text-sm font-bold bg-orange-50 border border-orange-200 text-orange-700 px-2 py-0.5 rounded-lg">
+                                {p.coachNumber}-{p.seatNumber}
+                              </span>
+                            ) : (
+                              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-lg">{p.queuePosition || 'No berth'}</span>
+                            )}
+                            <StatusBadge status={p.status} size="sm" />
+                          </div>
+                          <div className="text-xs text-slate-600 mt-1">
+                            {p.age}y / {p.gender} · Berth: {p.berthType || '-'}
+                            {p.concessionType && p.concessionType !== 'NONE' ? ` · Concession: ${p.concessionType.replace('_', ' ')}` : ''}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                          <div><div className="text-[11px] font-semibold text-slate-500 uppercase">Boarding</div><StatusBadge status={boarding} size="sm" /></div>
+                          <div><div className="text-[11px] font-semibold text-slate-500 uppercase">Verification</div><StatusBadge status={p.verification?.result || 'UNCHECKED'} size="sm" /></div>
+                        </div>
+                      </div>
 
-                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                  <div className="text-[11px] font-semibold text-slate-400 uppercase">Official ID Document</div>
-                  <div className="text-sm font-bold text-blue-700 mt-1">{passenger.idProofType}</div>
-                  <div className="text-xs font-mono text-slate-700 font-medium mt-1">{passenger.idProofReference}</div>
-                </div>
+                      {p.verification && (
+                        <p className="text-xs text-slate-600">Last check {p.verification.verifiedAt.slice(0, 16)}: {p.verification.remarks || 'no remarks'}</p>
+                      )}
 
-                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                  <div className="text-[11px] font-semibold text-slate-400 uppercase">Verification Stamp</div>
-                  <div className="mt-1">
-                    <StatusBadge status={passenger.verificationStatus} size="sm" />
-                  </div>
-                  <div className="text-[11px] text-slate-500 mt-1 truncate">{passenger.verificationNotes || 'No inspector remarks recorded'}</div>
-                </div>
-              </div>
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Inspector remarks for {p.name}
+                        <input
+                          type="text"
+                          value={notes[p.passengerNo] || ''}
+                          onChange={(e) => setNotes(prev => ({ ...prev, [p.passengerNo]: e.target.value }))}
+                          placeholder="e.g. Original ID inspected, details match"
+                          className="mt-1 w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-orange-500"
+                        />
+                      </label>
 
-              {/* Inspector Decision Panel */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
-                <label className="text-xs font-semibold text-slate-700 block mb-2">Inspector Verification Remarks & Findings:</label>
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Original Aadhaar physical card inspected, details match exactly..."
-                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-800 outline-none focus:border-orange-500 mb-4 shadow-2xs"
-                />
-
-                <div className="flex items-center gap-3 flex-wrap">
-                  <button
-                    disabled={actionLoading}
-                    onClick={() => handleDecision('VALID', 'BOARDED')}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs transition-all"
-                  >
-                    {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                    <span>Accept & Mark ID VALID</span>
-                  </button>
-
-                  <button
-                    disabled={actionLoading}
-                    onClick={() => handleDecision('INVALID', 'NO_SHOW')}
-                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs transition-all"
-                  >
-                    {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
-                    <span>Reject & Mark INVALID (No-Show)</span>
-                  </button>
-
-                  <button
-                    disabled={actionLoading}
-                    onClick={() => handleDecision('MISMATCH', 'NOT_VERIFIED')}
-                    className="px-4 py-2 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-700 border border-amber-200 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
-                  >
-                    <AlertTriangle className="w-4 h-4" />
-                    <span>ID MISMATCH (Request Proof)</span>
-                  </button>
-
-                  {onIssueFinePrefill && (
-                    <button
-                      onClick={() => onIssueFinePrefill(passenger.name, passenger.idProofReference, 'TRAVELLING_IN_HIGHER_CLASS_WITHOUT_UPGRADE')}
-                      className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
-                    >
-                      <FileWarning className="w-4 h-4" />
-                      <span>Issue Penalty Challan</span>
-                    </button>
-                  )}
-                </div>
-              </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          disabled={busyNo !== null || !canBoard}
+                          onClick={() => decide(p, 'VALID', 'BOARD')}
+                          className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs"
+                        >
+                          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                          <span>ID valid, board</span>
+                        </button>
+                        <button
+                          disabled={busyNo !== null || !canBoard}
+                          onClick={() => decide(p, 'INVALID', 'NO_SHOW')}
+                          className="px-3 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs"
+                        >
+                          <XCircle className="w-4 h-4" />
+                          <span>ID invalid, no-show</span>
+                        </button>
+                        <button
+                          disabled={busyNo !== null}
+                          onClick={() => decide(p, 'MISMATCH', 'NONE')}
+                          className="px-3 py-2 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-800 border border-amber-200 rounded-xl text-xs font-semibold flex items-center gap-2"
+                        >
+                          <AlertTriangle className="w-4 h-4" />
+                          <span>ID mismatch</span>
+                        </button>
+                        {onIssueFinePrefill && (
+                          <button
+                            onClick={() => onIssueFinePrefill(p.name, '', 'TRAVELLING_IN_HIGHER_CLASS_WITHOUT_UPGRADE')}
+                            className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center gap-2"
+                          >
+                            <FileWarning className="w-4 h-4" />
+                            <span>Penalty challan</span>
+                          </button>
+                        )}
+                      </div>
+                      {!canBoard && boarding === 'NOT_VERIFIED' && (
+                        <p className="text-xs text-slate-600">This passenger is {p.status.replace('_', ' ').toLowerCase()}, so boarding is not possible.</p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
         </div>

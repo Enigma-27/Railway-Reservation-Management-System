@@ -2,7 +2,7 @@
 
 Welcome to the database repository of the **Railway Reservation & Management System**.
 
-This document specifies the relational database schema (MySQL InnoDB, proposed design: MySQL 8.0+), operational NoSQL storage (MongoDB, proposed design: MongoDB 7.0+), and DBMS automation scripts (triggers, stored procedures, transactions) in accordance with the approved ER diagram (`FINALx4_Railway Reservation & Management System – ER Diagram.html`) and Section 16 of the Business Rules (`docs/BUSINESS_RULES.md`).
+This document specifies the relational database schema (MySQL InnoDB, proposed design: MySQL 8.0+), operational NoSQL storage (MongoDB, proposed design: MongoDB 7.0+), and DBMS automation scripts (triggers, stored procedures, transactions) in accordance with the approved ER diagram (`FINALx4_Railway Reservation & Management System – ER Diagram.html`) and the Business Rules (`docs/BUSINESS_RULES.md`).
 
 All tables strictly incorporate the canonical entities, primary/foreign keys, and real codes from the five datasets in `datasets/`:
 - **Stations (158)**: Station IDs 1 to 158 (`stations_158_final.xlsx`)
@@ -34,12 +34,12 @@ The system utilizes a hybrid persistence architecture:
 2. `SAVED_PASSENGER` (`passenger_id` [PK], `user_id` [FK], `name`, `age`, `gender`, `id_proof_type`, `id_proof_reference`, `disability_type`, `berth_preference`)  
    *(Note: Concessions are chosen dynamically per booking and not stored permanently on saved passenger profiles per BR-C10).*
 3. `SEAT_HOLD` **`(new)`** (`token` [PK], `user_id` [FK], `schedule_id` [FK], `class_id` [FK], `quota`, `seat_count`, `expires_at`)  
-   *(Implements 10-minute temporary seat hold starting at Step 3 per BR-B2).*
+   *(Present in the schema but not used by any procedure or backend code; only `sp_prepare_chart` deletes its rows. The real 10-minute hold is a `PAYMENT_PENDING` booking, see `docs/KNOWN_GAPS_AND_DECISIONS.md`).*
 4. `BOOKING` (`pnr` [PK, 10 digits], `user_id` [FK], `schedule_id` [FK], `class_id` [FK], `from_stop_id` [FK], `to_stop_id` [FK], `channel` [`ONLINE`, `COUNTER`] **`(new)`**, `booked_by_staff_id` [FK, NULLABLE] **`(new)`**, `quota` [`GENERAL`, `LADIES`, `TATKAL`, `SENIOR_CITIZEN`, `DIVYAANG`] **`(new)`**, `requested_quota` **`(new)`**, `berth_condition` **`(new)`**, `total_fare`, `status` [`PAYMENT_PENDING`, `CONFIRMED`, `RAC`, `WAITING_LIST`, `CANCELLED`, `FAILED`], `created_at`)  
    *(Indexed on `(user_id, created_at)` to accelerate monthly booking limit enforcement per BR-B15: 12 tickets/month, or 24 if Aadhaar-verified; settings MAX_TICKETS_PER_MONTH and MAX_TICKETS_PER_MONTH_AADHAAR_VERIFIED; counted by booking date, includes cancelled, excludes FAILED; shared COUNTER_WALKIN exempt).*
 5. `PASSENGER_BOOKING` (`pnr` [PFK], `passenger_no` [PK, 1..6], `saved_passenger_id` [FK, NULLABLE] **`(new)`**, `name`, `age`, `gender`, `concession_type` [`NONE`, `DIVYAANG`, `SENIOR_CITIZEN`] **`(new)`**, `concession_proof_type` **`(new)`**, `concession_proof_ref` **`(new)`**, `base_fare` **`(new)`**, `concession_discount` **`(new)`**, `reservation_charge` **`(new)`**, `superfast_charge` **`(new)`**, `tatkal_charge` **`(new)`**, `dynamic_surcharge` **`(new)`**, `gst` **`(new)`**, `insurance` **`(new)`**, `total_fare` **`(new)`**)
 6. `RESERVATION` (`res_id` [PK], `pnr` [FK], `passenger_no` [FK], `schedule_id` [FK], `seat_id` [FK, NULLABLE], `status` [`CONFIRMED`, `RAC`, `WAITING_LIST`, `BOARDED`, `NO_SHOW`, `CANCELLED`], `queue_position`)
-7. `PAYMENT` (`payment_id` [PK], `pnr` [FK, NULLABLE], `amount`, `method` [`CREDIT_CARD`, `DEBIT_CARD`, `UPI`, `NET_BANKING`, `CASH`], `status` [`PENDING`, `SUCCESS`, `FAILED`], `gateway_payment_id` [UQ] **`(new)`**, `paid_at`)
+7. `PAYMENT` (`payment_id` [PK], `pnr` [FK, NULLABLE], `amount`, `method` [`CREDIT_CARD`, `DEBIT_CARD`, `UPI`, `NET_BANKING`, `CASH`, `UNKNOWN`], `status` [`PENDING`, `SUCCESS`, `FAILED`], `gateway_payment_id` [UQ] **`(new)`**, `paid_at`)
 8. `CANCELLATION` (`cancel_id` [PK], `pnr` [FK], `passenger_no` [FK, NULLABLE], `reason`, `charge`, `cancelled_at`)
 9. `TDR_FILING` (`tdr_ref_no` [PK], `pnr` [FK], `passenger_no` [FK, NULLABLE], `reason` [`TRAIN_DELAYED_OVER_3_HOURS`, `TRAIN_DIVERTED`, `CLASS_DOWNGRADED`, `AC_FAILURE`, `COACH_NOT_ATTACHED`, `TRAIN_TERMINATED_SHORT`], `filed_at`, `status` [`FILED`, `UNDER_REVIEW`, `APPROVED`, `REJECTED`, `REFUND_PROCESSED`], `evidence_reference` **`(new)`**, `refund_amount` **`(new)`**, `reviewed_by` [FK] **`(new)`**, `reviewed_at` **`(new)`**, `remarks`)
 10. `REFUND` (`refund_id` [PK], `cancel_id` [FK, NULLABLE], `tdr_ref_no` [FK, NULLABLE] **`(new)`**, `payment_id` [FK], `amount`, `reason` [`CANCELLATION`, `TDR_APPROVED`, `WAITLIST_PURGE`, `PAYMENT_AFTER_EXPIRY`, `TRAIN_CANCELLED`] **`(new)`**, `status` [`PENDING`, `PROCESSED`])
@@ -149,7 +149,9 @@ The database schema directly ingests the five standardized datasets in `datasets
 6. `SETTING` is seeded with initial project constants:
    - `BOOKING_WINDOW_DAYS`: `'7'` (BR-B1)
    - `HOLD_MINUTES`: `'10'` (BR-B2)
-   - `MAX_PASSENGERS_PER_PNR` / `TATKAL`: `'6'` / `'4'` (BR-B3, BR-Q3)
+   - `MAX_PASSENGERS_PER_PNR` / `TATKAL`: `'6'` / `'4'` (BR-B3, BR-Q3; enforced by the booking APIs)
+   - `SENIOR_AGE_MALE` / `SENIOR_AGE_FEMALE`: `'60'` / `'45'` (read by `sp_create_booking`)
+   - `CONTACT_HELPLINE`, `CONTACT_EMAIL`, `CONTACT_ADDRESS`: demo values for the Contact Us panel
    - `CHART_HOURS_BEFORE_ORIGIN_DEPARTURE`: `'8'` (BR-B12)
    - `MAX_TICKETS_PER_MONTH` / `_AADHAAR`: `'12'` / `'24'` (BR-B15)
    - `CONCESSION_SENIOR_ACTIVE`: `'false'` (BR-C2)

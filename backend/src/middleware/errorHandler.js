@@ -4,10 +4,18 @@ const CANONICAL_ERROR_MESSAGES = {
   NOT_ALL_CONFIRMED: 'User opted "book only if confirmed" and at least one passenger would be RAC or WL.',
   HOLD_EXPIRED: 'The 10-minute seat hold timer lapsed before payment completion.',
   TRAIN_NOT_RUNNING: 'The train does not operate on the origin departure date corresponding to the boarding date (BR-B1a).',
+  JOURNEY_PAST: 'This train has already left the boarding station, so it can no longer be booked.',
+  OUTSIDE_BOOKING_WINDOW: 'This journey date is too far ahead. Tickets open only a few days before the journey (see the booking window setting).',
+  INVALID_STOPS: 'The boarding and destination stops are not valid for this train, or the boarding stop is not before the destination.',
   QUOTA_NOT_ELIGIBLE: 'Passenger roster does not satisfy quota criteria.',
   CONCESSION_PROOF_REQUIRED: 'Concession selected without valid proof type or certificate reference.',
+  INVALID_SETTING_VALUE: 'This value is not allowed for this setting.',
+  PAYMENT_AMOUNT_MISMATCH: 'The payment amount does not match the booking fare. No ticket was issued.',
+  PAYMENT_AMOUNT_INVALID: 'The payment amount is not valid. No ticket was issued.',
+  REFUND_EXCEEDS_PAYMENT: 'This refund is not allowed because it would return more than was paid, or the seat was already refunded.',
   NO_ADULT_PASSENGER: 'Booking attempt contains no passenger aged 18 or older (BR-Q15).',
   BERTH_PREFERENCE_NOT_MET: 'The requested berth preference could not be satisfied for all passengers in the selected class.',
+  AADHAAR_REQUIRED: 'Tatkal needs an Aadhaar-verified account (at the counter: an Aadhaar ID proof for one passenger).',
   MONTHLY_LIMIT_EXCEEDED: 'User exceeded monthly ticket limit (12 tickets/PNRs per calendar month, or 24 if Aadhaar-verified).',
   CHART_PREPARED: 'Booking or online cancellation attempted at or after chart time (BR-B12a, BR-B16).'
 };
@@ -18,10 +26,18 @@ const CANONICAL_ERROR_STATUS_CODES = {
   NOT_ALL_CONFIRMED: 400,
   HOLD_EXPIRED: 400,
   TRAIN_NOT_RUNNING: 400,
+  JOURNEY_PAST: 400,
+  OUTSIDE_BOOKING_WINDOW: 400,
+  INVALID_STOPS: 400,
   QUOTA_NOT_ELIGIBLE: 400,
   CONCESSION_PROOF_REQUIRED: 400,
+  INVALID_SETTING_VALUE: 400,
+  PAYMENT_AMOUNT_MISMATCH: 400,
+  PAYMENT_AMOUNT_INVALID: 400,
+  REFUND_EXCEEDS_PAYMENT: 400,
   NO_ADULT_PASSENGER: 400,
   BERTH_PREFERENCE_NOT_MET: 400,
+  AADHAAR_REQUIRED: 400,
   MONTHLY_LIMIT_EXCEEDED: 400,
   CHART_PREPARED: 400,
   VALIDATION_ERROR: 400,
@@ -30,6 +46,8 @@ const CANONICAL_ERROR_STATUS_CODES = {
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   CONFLICT: 409,
+  TOO_MANY_REQUESTS: 429,
+  SERVICE_UNAVAILABLE: 503,
   INTERNAL_SERVER_ERROR: 500
 };
 
@@ -48,6 +66,10 @@ function errorHandler(err, req, res, next) {
   let message = err.message || 'An unexpected error occurred';
   let statusCode = err.statusCode || 500;
 
+  // messageIsSafe = the message was written by us (or replaced by a fixed text)
+  // and may be sent to the client even outside development.
+  let messageIsSafe = err.name === 'AppError';
+
   // 1. Check if error is or contains a known canonical error code in message or sqlMessage
   const fullText = `${err.message || ''} ${err.sqlMessage || ''} ${err.code || ''}`;
   for (const canonicalCode of Object.keys(CANONICAL_ERROR_MESSAGES)) {
@@ -57,6 +79,7 @@ function errorHandler(err, req, res, next) {
         ? err.message
         : CANONICAL_ERROR_MESSAGES[canonicalCode];
       statusCode = CANONICAL_ERROR_STATUS_CODES[canonicalCode] || 400;
+      messageIsSafe = message === CANONICAL_ERROR_MESSAGES[canonicalCode] || err.name === 'AppError';
       break;
     }
   }
@@ -66,10 +89,17 @@ function errorHandler(err, req, res, next) {
     code = 'CONFLICT';
     message = 'A record with this identifier already exists.';
     statusCode = 409;
+    messageIsSafe = true;
+  } else if (err.errno === 3819 || err.code === 'ER_CHECK_CONSTRAINT_VIOLATED') {
+    code = 'VALIDATION_ERROR';
+    message = 'The value is outside the allowed range.';
+    statusCode = 400;
+    messageIsSafe = true;
   } else if (err.errno === 1452 || err.code === 'ER_NO_REFERENCED_ROW_2') {
     code = 'VALIDATION_ERROR';
     message = 'Invalid reference: referenced entity does not exist.';
     statusCode = 400;
+    messageIsSafe = true;
   }
 
   // 3. JWT error mapping
@@ -77,10 +107,12 @@ function errorHandler(err, req, res, next) {
     code = 'UNAUTHORIZED';
     message = 'Invalid authentication token.';
     statusCode = 401;
+    messageIsSafe = true;
   } else if (err.name === 'TokenExpiredError') {
     code = 'UNAUTHORIZED';
     message = 'Authentication token has expired.';
     statusCode = 401;
+    messageIsSafe = true;
   }
 
   // 4. Default status code fallback
@@ -88,9 +120,18 @@ function errorHandler(err, req, res, next) {
     statusCode = CANONICAL_ERROR_STATUS_CODES[code] || 400;
   }
 
-  // Never leak raw SQL query strings or server internals in error message
-  if (statusCode === 500 && process.env.NODE_ENV === 'production') {
+  // 5. Never send raw SQL or driver text to the client unless NODE_ENV === 'development'.
+  // The real error is logged on the server instead.
+  const looksLikeDbOrServerError = Boolean(err.sql || err.sqlMessage || err.errno) || statusCode >= 500;
+  if (process.env.NODE_ENV !== 'development' && !messageIsSafe && looksLikeDbOrServerError) {
+    console.error(`[ERROR] ${req.method} ${req.originalUrl}:`, err);
+    if (err.sql || err.sqlMessage || err.errno) {
+      code = 'INTERNAL_SERVER_ERROR';
+      statusCode = 500;
+    }
     message = 'An unexpected server error occurred.';
+  } else if (statusCode >= 500) {
+    console.error(`[ERROR] ${req.method} ${req.originalUrl}:`, err);
   }
 
   res.status(statusCode).json({

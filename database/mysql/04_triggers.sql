@@ -257,4 +257,64 @@ BEGIN
     );
 END$$
 
+-- -----------------------------------------------------------------------------
+-- trg_refund_cap (backstop for "never refund more than was paid")
+-- The procedures check this first and return REFUND_EXCEEDS_PAYMENT. This trigger
+-- is the last line of defence for any other code path that writes REFUND rows.
+-- PENDING, PROCESSED and FAILED rows all count (a FAILED refund is still owed and will be retried).
+-- -----------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_refund_cap$$
+CREATE TRIGGER trg_refund_cap
+BEFORE INSERT ON REFUND
+FOR EACH ROW
+BEGIN
+    DECLARE v_paid DECIMAL(10,2) DEFAULT NULL;
+    DECLARE v_pnr VARCHAR(10) DEFAULT NULL;
+    DECLARE v_refunded DECIMAL(10,2) DEFAULT 0.00;
+
+    BEGIN
+        SELECT amount, pnr INTO v_paid, v_pnr FROM PAYMENT WHERE payment_id = NEW.payment_id;
+        -- Same counting rule as fn_refund_room: only refunds that belong to the payment's own PNR
+        SELECT COALESCE(SUM(r.amount), 0.00) INTO v_refunded
+        FROM REFUND r
+        LEFT JOIN CANCELLATION c ON c.cancel_id = r.cancel_id
+        LEFT JOIN TDR_FILING t ON t.tdr_ref_no = r.tdr_ref_no
+        WHERE r.payment_id = NEW.payment_id
+          AND COALESCE(c.pnr, t.pnr, v_pnr) = v_pnr;
+
+        IF v_paid IS NOT NULL AND v_refunded + NEW.amount > v_paid THEN
+            SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'REFUND_EXCEEDS_PAYMENT: Total refunds would be more than the amount paid.';
+        END IF;
+    END;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- trg_validate_setting_insert / trg_validate_setting_update
+-- A SETTING value that would break the money maths is refused (fn_setting_value_valid): GST outside 0 to 1,
+-- a negative or text insurance premium or clerkage, something other than true/false for the on/off keys, and so on.
+-- The seed is loaded before the triggers exist, so loading is not affected.
+-- -----------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_validate_setting_insert$$
+CREATE TRIGGER trg_validate_setting_insert
+BEFORE INSERT ON SETTING
+FOR EACH ROW
+BEGIN
+    IF fn_setting_value_valid(NEW.setting_key, NEW.setting_value) = 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'INVALID_SETTING_VALUE: This value is not allowed for this setting.';
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS trg_validate_setting_update$$
+CREATE TRIGGER trg_validate_setting_update
+BEFORE UPDATE ON SETTING
+FOR EACH ROW
+BEGIN
+    IF fn_setting_value_valid(NEW.setting_key, NEW.setting_value) = 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'INVALID_SETTING_VALUE: This value is not allowed for this setting.';
+    END IF;
+END$$
+
 DELIMITER ;

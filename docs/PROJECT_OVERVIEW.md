@@ -1,3 +1,5 @@
+> **Status: early-phase document (kept as history).** The scope and goals below are still right, but the screens, logins and run instructions have changed. The current guide is the root README.md; the current screens are described in frontend/README.md.
+
 # Project Overview: Railway Reservation & Management System
 
 ## 1. Executive Summary

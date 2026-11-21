@@ -1,305 +1,218 @@
 import React, { useEffect, useState } from 'react';
-import { Edit2, Calculator,  } from 'lucide-react';
+import { Edit2, Calculator } from 'lucide-react';
 import { fareService } from '../../services/fareService';
-import { FareRule } from '../../types/fare';
-import { ClassType } from '../../constants/enums';
+import { FareRule, RealFareCalculation } from '../../types/fare';
 import { DataTable, Column } from '../../components/DataTable';
 import { Modal } from '../../components/Modal';
 import { PageHeader } from '../../components/PageHeader';
-import { calculateFare } from '../../utils/fareCalculator';
 import { formatCurrency } from '../../utils/format';
 
+// Class codes by class_id (SEAT_CLASS seed)
+const CLASS_BY_ID: Record<number, string> = { 1: '1A', 2: '2A', 3: '3A', 4: 'SL', 5: 'CC', 6: 'EC', 7: '2S' };
+const CLASS_CODES = ['1A', '2A', '3A', 'SL', 'CC', 'EC', '2S'];
+
+/**
+ * Fares. A fare is a list of DISTANCE SLABS per class: min km, max km and a rate per km (table FARE).
+ * The base fare of a ticket is distance x the rate of the slab the distance falls in. The reservation charge,
+ * superfast charge, Tatkal percent, GST and insurance are added by the database (see docs/BUSINESS_RULES.md).
+ * The calculator below asks the database for the real fare, so what you see is what a booking would charge.
+ */
 export const FaresPage: React.FC = () => {
   const [fares, setFares] = useState<FareRule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Edit Fare Modal
-  const [editingFare, setEditingFare] = useState<FareRule | null>(null);
-  const [formData, setFormData] = useState<Partial<FareRule>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Edit slab modal
+  const [editing, setEditing] = useState<FareRule | null>(null);
+  const [form, setForm] = useState<{ minDistanceKm: number; maxDistanceKm: number; ratePerKm: number }>({ minDistanceKm: 0, maxDistanceKm: 0, ratePerKm: 0 });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  // Interactive Live Fare Calculator Preview Inputs
+  // Calculator inputs and the answer from the API
   const [calcDistance, setCalcDistance] = useState<number>(1384);
-  const [calcClass, setCalcClass] = useState<ClassType>('3A');
-  const [calcIsTatkal, setCalcIsTatkal] = useState<boolean>(false);
-  const [calcInsurance, setCalcInsurance] = useState<boolean>(true);
-  const [calcConcession, setCalcConcession] = useState<number>(0);
+  const [calcClass, setCalcClass] = useState<string>('3A');
+  const [calcTrain, setCalcTrain] = useState<string>('RAJDHANI');
+  const [calcQuota, setCalcQuota] = useState<string>('GENERAL');
+  const [calcConcession, setCalcConcession] = useState<string>('NONE');
+  const [calc, setCalc] = useState<RealFareCalculation | null>(null);
+  const [calcError, setCalcError] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await fareService.getFares();
-      setFares(data);
-    } catch (err) {
-      console.error('Failed to load fares:', err);
+      setFares(await fareService.getFares());
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load fares.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
-  const handleOpenEdit = (fare: FareRule) => {
-    setEditingFare(fare);
-    setFormData({
-      baseRatePerKm: fare.baseRatePerKm,
-      reservationCharge: fare.reservationCharge,
-      tatkalCharge: fare.tatkalCharge,
-      gstPercentage: fare.gstPercentage,
-      insurancePremium: fare.insurancePremium,
-    });
+  // Ask the database for the real fare whenever an input changes (short delay while typing)
+  useEffect(() => {
+    if (!Number.isInteger(calcDistance) || calcDistance < 1 || calcDistance > 10000) {
+      setCalc(null);
+      setCalcError('Enter a distance from 1 to 10000 km.');
+      return;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      fareService
+        .calculate({ classCode: calcClass, distanceKm: calcDistance, trainType: calcTrain, quota: calcQuota, concession: calcConcession })
+        .then((r) => { if (live) { setCalc(r); setCalcError(null); } })
+        .catch((e: any) => { if (live) { setCalc(null); setCalcError(e.message || 'The fare could not be calculated.'); } });
+    }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [calcDistance, calcClass, calcTrain, calcQuota, calcConcession]);
+
+  const openEdit = (fare: FareRule) => {
+    setEditing(fare);
+    setFormError(null);
+    setForm({ minDistanceKm: fare.minDistanceKm ?? 0, maxDistanceKm: fare.maxDistanceKm ?? 0, ratePerKm: fare.ratePerKm ?? 0 });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingFare) return;
-    setIsSubmitting(true);
+    if (!editing) return;
+    if (!(form.maxDistanceKm > form.minDistanceKm)) return setFormError('The maximum distance must be larger than the minimum distance.');
+    if (!(form.ratePerKm > 0)) return setFormError('The rate per km must be above 0.');
+    setSaving(true);
+    setFormError(null);
     try {
-      await fareService.updateFare(editingFare.fareId, formData);
+      await fareService.updateFare(editing.fareId, form);
       await loadData();
-      setEditingFare(null);
+      setEditing(null);
     } catch (err: any) {
-      alert(err.message || 'Failed to update fare rule.');
+      setFormError(err.message || 'Failed to update the fare slab.');
     } finally {
-      setIsSubmitting(false);
+      setSaving(false);
     }
   };
 
-  // Live Calculator Calculation
-  const selectedRule = fares.find((f) => f.classType === calcClass);
-  const fareResult = calculateFare(
-    {
-      distanceKm: calcDistance,
-      classType: calcClass,
-      isTatkal: calcIsTatkal,
-      insuranceSelected: calcInsurance,
-      concessionDiscount: calcConcession,
-    },
-    selectedRule
-  );
+  const money = (v?: number) => (typeof v === 'number' ? `₹ ${v.toFixed(2)}` : '—');
+  const classOf = (row: FareRule) => row.classType ?? (row.classId ? CLASS_BY_ID[row.classId] : undefined) ?? '—';
 
   const columns: Column<FareRule>[] = [
     {
-      header: 'Travel Class',
-      accessorKey: 'classType',
+      header: 'Travel class',
+      accessorKey: 'classId',
       sortable: true,
       cell: (row) => (
-        <span className="font-mono font-bold text-slate-900 bg-orange-50 border border-orange-200 px-2.5 py-1 rounded text-xs">
-          {row.classType}
-        </span>
+        <span className="font-mono font-bold text-slate-900 bg-orange-50 border border-orange-200 px-2.5 py-1 rounded text-xs">{classOf(row)}</span>
       ),
     },
     {
-      header: 'Base Rate / km',
-      accessorKey: 'baseRatePerKm',
+      header: 'Distance slab (km)',
+      accessorKey: 'minDistanceKm',
       sortable: true,
-      cell: (row) => <span className="font-mono text-xs font-semibold">₹ {row.baseRatePerKm.toFixed(2)}</span>,
+      cell: (row) => <span className="font-mono text-xs">{row.minDistanceKm} to {row.maxDistanceKm}</span>,
     },
     {
-      header: 'Reservation Charge',
-      accessorKey: 'reservationCharge',
-      cell: (row) => <span className="font-mono text-xs">₹ {row.reservationCharge.toFixed(2)}</span>,
-    },
-    {
-      header: 'Tatkal Surcharge',
-      accessorKey: 'tatkalCharge',
-      cell: (row) => <span className="font-mono text-xs font-semibold text-amber-700">₹ {row.tatkalCharge.toFixed(2)}</span>,
-    },
-    {
-      header: 'GST Rate',
-      accessorKey: 'gstPercentage',
-      cell: (row) => (
-        <span className="font-mono text-xs font-semibold text-slate-700">
-          {row.gstPercentage}% {row.gstPercentage > 0 ? '(AC)' : '(Non-AC)'}
-        </span>
-      ),
-    },
-    {
-      header: 'Insurance Premium',
-      accessorKey: 'insurancePremium',
-      cell: (row) => <span className="font-mono text-xs text-slate-500">₹ {row.insurancePremium.toFixed(2)}</span>,
+      header: 'Rate per km',
+      accessorKey: 'ratePerKm',
+      sortable: true,
+      cell: (row) => <span className="font-mono text-xs font-semibold">{money(row.ratePerKm)}</span>,
     },
     {
       header: 'Actions',
       align: 'right',
       cell: (row) => (
-        <button
-          onClick={() => handleOpenEdit(row)}
-          className="btn-icon"
-          title="Edit Fare Rates"
-        >
+        <button onClick={() => openEdit(row)} className="btn-icon" title="Edit this slab" aria-label={`Edit slab ${classOf(row)} ${row.minDistanceKm} to ${row.maxDistanceKm} km`}>
           <Edit2 className="w-4 h-4" />
         </button>
       ),
     },
   ];
 
+  const line = (label: string, value: number, hide = false) => (hide ? null : (
+    <div className="flex justify-between text-slate-700">
+      <span>{label}</span>
+      <span className="font-mono font-semibold text-slate-900">{formatCurrency(value)}</span>
+    </div>
+  ));
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Fare Structure & Live Pricing Calculator"
-        description="Distance-based class base rates, reservation fees, Tatkal surcharges, and canonical fare computation engine."
+        title="Fares and Fare Calculator"
+        description="Distance slabs per class (the base rate per km). Reservation, superfast, Tatkal, GST and insurance are added by the database when a ticket is priced."
       />
 
-      {/* Live Interactive Fare Calculator Preview Card */}
-      <div className="bg-white rounded-2xl border border-orange-200 shadow-sm overflow-hidden">
-        <div className="p-5 bg-gradient-to-r from-orange-600 to-amber-600 text-white flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Calculator className="w-6 h-6" />
-            <div>
-              <h3 className="text-base font-bold">Canonical Fare Calculation Engine (Live Preview)</h3>
-              <p className="text-xs text-orange-100">
-                Formula: (Distance × Rate) + Resv + Tatkal + Insurance + GST (5% AC) − Concession
-              </p>
-            </div>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-5 bg-slate-50 border-b border-slate-200 flex items-center gap-2.5">
+          <Calculator className="w-6 h-6 text-orange-700" aria-hidden="true" />
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Fare calculator (real fare)</h2>
+            <p className="text-xs text-slate-600">Calculated by the same database function every booking uses, for one passenger with insurance.</p>
           </div>
-          <span className="text-xs font-mono font-bold bg-white/20 px-2.5 py-1 rounded-md">
-            REAL-TIME PREVIEW
-          </span>
         </div>
 
         <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Controls (7 cols) */}
-          <div className="lg:col-span-7 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="form-label">
-                  Route Distance (km)
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={calcDistance}
-                  onChange={(e) => setCalcDistance(Number(e.target.value))}
-                  className="form-input mono"
-                />
-              </div>
-              <div>
-                <label className="form-label">
-                  Travel Class
-                </label>
-                <select
-                  value={calcClass}
-                  onChange={(e) => setCalcClass(e.target.value as ClassType)}
-                  className="form-input"
-                >
-                  <option value="1A">1A (First AC)</option>
-                  <option value="2A">2A (AC 2 Tier)</option>
-                  <option value="3A">3A (AC 3 Tier)</option>
-                  <option value="SL">SL (Sleeper Class)</option>
-                  <option value="CC">CC (AC Chair Car)</option>
-                  <option value="2S">2S (Second Sitting)</option>
-                  <option value="EC">EC (Exec Chair Car)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-              <label className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
-                <input
-                  type="checkbox"
-                  checked={calcIsTatkal}
-                  onChange={(e) => setCalcIsTatkal(e.target.checked)}
-                  className="rounded text-orange-600 focus:ring-orange-500 w-4 h-4"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-800 block">Tatkal Quota</span>
-                  <span className="text-meta">+ Surcharge</span>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
-                <input
-                  type="checkbox"
-                  checked={calcInsurance}
-                  onChange={(e) => setCalcInsurance(e.target.checked)}
-                  className="rounded text-orange-600 focus:ring-orange-500 w-4 h-4"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-800 block">Travel Insurance</span>
-                  <span className="text-meta">₹ 0.45 opt-in</span>
-                </div>
-              </label>
-
-              <div>
-                <label className="block text-[11px] font-semibold uppercase text-slate-500 mb-1">
-                  Concession Discount (₹)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={calcConcession}
-                  onChange={(e) => setCalcConcession(Number(e.target.value))}
-                  className="w-full text-xs border border-slate-300 rounded-lg p-2 font-mono focus:ring-2 focus:ring-orange-500 focus:outline-none"
-                  placeholder="0"
-                />
-              </div>
-            </div>
+          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
+            <label className="block">
+              <span className="form-label">Distance (km)</span>
+              <input type="number" min={1} max={10000} value={calcDistance} onChange={(e) => setCalcDistance(Number(e.target.value))} className="form-input mono" />
+            </label>
+            <label className="block">
+              <span className="form-label">Travel class</span>
+              <select value={calcClass} onChange={(e) => setCalcClass(e.target.value)} className="form-input">
+                {CLASS_CODES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="form-label">Train type (decides the superfast charge)</span>
+              <select value={calcTrain} onChange={(e) => setCalcTrain(e.target.value)} className="form-input">
+                <option value="RAJDHANI">Rajdhani</option>
+                <option value="SHATABDI">Shatabdi</option>
+                <option value="DURONTO">Duronto</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="form-label">Quota</span>
+              <select value={calcQuota} onChange={(e) => setCalcQuota(e.target.value)} className="form-input">
+                <option value="GENERAL">General</option>
+                <option value="TATKAL">Tatkal</option>
+                <option value="LADIES">Ladies</option>
+                <option value="SENIOR_CITIZEN">Senior citizen</option>
+                <option value="DIVYAANG">Divyaang</option>
+              </select>
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="form-label">Concession (from the concession rules; none on Tatkal)</span>
+              <select value={calcConcession} onChange={(e) => setCalcConcession(e.target.value)} className="form-input">
+                <option value="NONE">None</option>
+                <option value="DIVYAANG">Divyaang</option>
+                <option value="SENIOR_CITIZEN">Senior citizen (only when the senior concession setting is on)</option>
+              </select>
+            </label>
           </div>
 
-          {/* Itemized Fare Breakdown (5 cols) */}
-          <div className="lg:col-span-5 bg-slate-50 rounded-xl p-5 border border-slate-200 flex flex-col justify-between">
+          <div className="lg:col-span-5 bg-slate-50 rounded-xl p-5 border border-slate-200 flex flex-col justify-between" aria-live="polite">
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Computed Fare Breakdown
-                </span>
-                <span className="text-xs font-mono font-semibold text-slate-600">
-                  Class {calcClass} ({calcDistance} km)
-                </span>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Fare breakdown</span>
+                <span className="text-xs font-mono font-semibold text-slate-700">{calcClass}, {calcDistance} km</span>
               </div>
-
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between text-slate-600">
-                  <span>Base Fare:</span>
-                  <span className="font-mono font-semibold text-slate-900">
-                    {formatCurrency(fareResult.baseFare)}
-                  </span>
+              {calcError && <p className="text-xs text-rose-700" role="alert">{calcError}</p>}
+              {calc && (
+                <div className="space-y-2 text-xs">
+                  {line('Base fare (distance × slab rate)', calc.baseFare)}
+                  {line('Concession discount', -calc.concessionDiscount, calc.concessionDiscount === 0)}
+                  {line('Reservation charge', calc.reservationCharge)}
+                  {line('Superfast charge', calc.superfastCharge, calc.superfastCharge === 0)}
+                  {line('Tatkal charge', calc.tatkalCharge, calc.tatkalCharge === 0)}
+                  {line('Dynamic surcharge', calc.dynamicSurcharge, calc.dynamicSurcharge === 0)}
+                  {line('GST', calc.gst)}
+                  {line('Insurance', calc.insurance)}
                 </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Reservation Surcharge:</span>
-                  <span className="font-mono font-semibold text-slate-900">
-                    {formatCurrency(fareResult.reservationCharge)}
-                  </span>
-                </div>
-                {fareResult.tatkalCharge > 0 && (
-                  <div className="flex justify-between text-amber-700 font-semibold">
-                    <span>Tatkal Premium:</span>
-                    <span className="font-mono">{formatCurrency(fareResult.tatkalCharge)}</span>
-                  </div>
-                )}
-                {fareResult.insurancePremium > 0 && (
-                  <div className="flex justify-between text-slate-600">
-                    <span>Travel Insurance:</span>
-                    <span className="font-mono">{formatCurrency(fareResult.insurancePremium)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-slate-500 border-t border-slate-200/80 pt-1.5 font-medium">
-                  <span>Subtotal:</span>
-                  <span className="font-mono">{formatCurrency(fareResult.subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Goods & Services Tax (GST 5%):</span>
-                  <span className="font-mono font-semibold text-slate-900">
-                    {formatCurrency(fareResult.gst)}
-                  </span>
-                </div>
-                {fareResult.concessionDiscount > 0 && (
-                  <div className="flex justify-between text-emerald-700 font-semibold">
-                    <span>Concession Discount:</span>
-                    <span className="font-mono">− {formatCurrency(fareResult.concessionDiscount)}</span>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
-
             <div className="mt-4 pt-3 border-t-2 border-slate-300 flex items-baseline justify-between">
-              <span className="text-sm font-bold text-slate-900">Total Ticket Fare</span>
-              <span className="text-2xl font-extrabold text-orange-600 font-mono">
-                {formatCurrency(fareResult.totalFare)}
-              </span>
+              <span className="text-sm font-bold text-slate-900">Total fare</span>
+              <span className="text-2xl font-extrabold text-slate-900 font-mono">{calc ? formatCurrency(calc.totalFare) : '—'}</span>
             </div>
           </div>
         </div>
@@ -309,116 +222,38 @@ export const FaresPage: React.FC = () => {
         data={fares}
         columns={columns}
         loading={loading}
-        searchPlaceholder="Search fare classes..."
-        emptyMessage="No fare rules found."
+        error={error}
+        onRetry={loadData}
+        pageSize={14}
+        searchPlaceholder="Search by class, for example 3A..."
+        searchFilter={(row, q) => classOf(row).toLowerCase().includes(q.toLowerCase())}
+        emptyMessage="No fare slabs found."
       />
 
-      {/* Edit Fare Rates Modal */}
-      <Modal
-        isOpen={!!editingFare}
-        onClose={() => setEditingFare(null)}
-        title={`Edit Fare Matrix - Class ${editingFare?.classType}`}
-        maxWidth="md"
-      >
-        {editingFare && (
-          <form onSubmit={handleSubmit} className="space-y-4">
+      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title={`Edit fare slab, class ${editing ? classOf(editing) : ''}`} maxWidth="md">
+        {editing && (
+          <form onSubmit={submit} className="space-y-4">
+            <p className="text-xs text-slate-600">
+              A slab says: tickets whose distance is between the minimum and the maximum pay this rate for every km. Slabs of one class should not overlap.
+            </p>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="form-label">
-                  Base Rate Per Km (₹) *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min={0.01}
-                  required
-                  value={formData.baseRatePerKm || 0}
-                  onChange={(e) => setFormData({ ...formData, baseRatePerKm: Number(e.target.value) })}
-                  className="form-input mono"
-                />
-              </div>
-              <div>
-                <label className="form-label">
-                  Reservation Charge (₹) *
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min={0}
-                  required
-                  value={formData.reservationCharge || 0}
-                  onChange={(e) =>
-                    setFormData({ ...formData, reservationCharge: Number(e.target.value) })
-                  }
-                  className="form-input mono"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="form-label">
-                  Tatkal Surcharge (₹) *
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min={0}
-                  required
-                  value={formData.tatkalCharge || 0}
-                  onChange={(e) => setFormData({ ...formData, tatkalCharge: Number(e.target.value) })}
-                  className="form-input mono"
-                />
-              </div>
-              <div>
-                <label className="form-label">
-                  GST Percentage (%) *
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min={0}
-                  max={28}
-                  required
-                  value={formData.gstPercentage ?? 5}
-                  onChange={(e) => setFormData({ ...formData, gstPercentage: Number(e.target.value) })}
-                  className="form-input mono"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="form-label">
-                Insurance Premium (₹) *
+              <label className="block">
+                <span className="form-label">Minimum distance (km) *</span>
+                <input type="number" min={0} required value={form.minDistanceKm} onChange={(e) => setForm({ ...form, minDistanceKm: Number(e.target.value) })} className="form-input mono" />
               </label>
-              <input
-                type="number"
-                step="0.01"
-                min={0}
-                required
-                value={formData.insurancePremium || 0}
-                onChange={(e) =>
-                  setFormData({ ...formData, insurancePremium: Number(e.target.value) })
-                }
-                className="form-input mono"
-              />
+              <label className="block">
+                <span className="form-label">Maximum distance (km) *</span>
+                <input type="number" min={1} required value={form.maxDistanceKm} onChange={(e) => setForm({ ...form, maxDistanceKm: Number(e.target.value) })} className="form-input mono" />
+              </label>
             </div>
-
+            <label className="block">
+              <span className="form-label">Rate per km (₹) *</span>
+              <input type="number" step="0.01" min={0.01} required value={form.ratePerKm} onChange={(e) => setForm({ ...form, ratePerKm: Number(e.target.value) })} className="form-input mono" />
+            </label>
+            {formError && <p className="text-xs text-rose-700" role="alert">{formError}</p>}
             <div className="form-section-divider flex items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setEditingFare(null)}
-                className="btn-ghost"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="btn-secondary"
-              >
-                {isSubmitting ? 'Saving...' : 'Update Fare Rules'}
-              </button>
+              <button type="button" onClick={() => setEditing(null)} className="btn-ghost">Cancel</button>
+              <button type="submit" disabled={saving} className="btn-secondary">{saving ? 'Saving...' : 'Save slab'}</button>
             </div>
           </form>
         )}

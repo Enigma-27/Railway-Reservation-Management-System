@@ -1,3 +1,4 @@
+import { todayIso } from '../../../services/publicApi';
 import React, { useEffect, useState } from 'react';
 import { Plus, Clock, Trash2, X } from 'lucide-react';
 import { scheduleService } from '../../services/scheduleService';
@@ -10,6 +11,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { Modal } from '../../components/Modal';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { PageHeader } from '../../components/PageHeader';
+import { toast } from '../../../ui/toast';
 import { formatDate, formatDelay, formatCurrency, formatDateTime } from '../../utils/format';
 
 export const SchedulesPage: React.FC = () => {
@@ -20,7 +22,8 @@ export const SchedulesPage: React.FC = () => {
 
   // Filters
   const [trainNoFilter, setTrainNoFilter] = useState<string>('');
-  const [fromDateFilter, setFromDateFilter] = useState<string>('');
+  // default: runs from today on (the seed also holds old October runs; the date filter can go back)
+  const [fromDateFilter, setFromDateFilter] = useState<string>(todayIso());
   const [toDateFilter, setToDateFilter] = useState<string>('');
   const [selectedTrainId, setSelectedTrainId] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -37,6 +40,7 @@ export const SchedulesPage: React.FC = () => {
   const [delayModalSchedule, setDelayModalSchedule] = useState<Schedule | null>(null);
   const [delayInput, setDelayInput] = useState<number>(0);
   const [statusInput, setStatusInput] = useState<ScheduleStatus>('ON_TIME');
+  const [delayReason, setDelayReason] = useState('');
   const [isUpdatingDelay, setIsUpdatingDelay] = useState(false);
 
   // Create Modal
@@ -97,23 +101,22 @@ export const SchedulesPage: React.FC = () => {
     setDelayModalSchedule(schedule);
     setDelayInput(schedule.delayMinutes || 0);
     setStatusInput(schedule.status || 'ON_TIME');
+    setDelayReason('');
   };
 
-  const handleSaveDelay = async (e: React.FormEvent) => {
+  const handleSaveDelay = async (e: React.FormEvent, clear = false) => {
     e.preventDefault();
     if (!delayModalSchedule) return;
 
     setIsUpdatingDelay(true);
     try {
-      const derivedStatus = delayInput > 0 && statusInput === 'ON_TIME' ? 'DELAYED' : statusInput;
-      await scheduleService.updateSchedule(delayModalSchedule.scheduleId || (delayModalSchedule as any).schedule_id, {
-        delayMinutes: Number(delayInput),
-        status: derivedStatus,
-      });
+      const id = Number(delayModalSchedule.scheduleId || (delayModalSchedule as any).schedule_id);
+      await scheduleService.setDelay(id, clear ? 0 : Number(delayInput), delayReason);
+      toast(clear ? 'Delay cleared. The run is on time again.' : `Delay of ${delayInput} minutes saved. Alerts and Live Trains show it now.`, 'success');
       await loadData();
       setDelayModalSchedule(null);
     } catch (err: any) {
-      alert(err.message || 'Failed to update schedule delay.');
+      toast(err.message || 'Failed to update schedule delay.', 'error');
     } finally {
       setIsUpdatingDelay(false);
     }
@@ -316,16 +319,17 @@ export const SchedulesPage: React.FC = () => {
             </button>
             <button
               onClick={() => handleOpenDelayModal(row)}
-              className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
-              title="Update Live Delay"
+              disabled={row.status === 'CANCELLED' || (row.status as string) === 'COMPLETED'}
+              className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Set or clear the delay of this run (shown on Alerts and Live Trains, written to the audit log)"
             >
-              <Clock className="w-3.5 h-3.5 text-orange-600" />
+              <Clock className="w-3.5 h-3.5" />
               <span>Delay</span>
             </button>
             <button
-              onClick={() => setDeletingSchedule(row)}
-              className="p-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 text-rose-600 transition-colors cursor-pointer"
-              title="Delete Schedule"
+              disabled
+              className="p-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed"
+              title="This feature is not available yet. The server has no route to delete a run."
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -353,11 +357,12 @@ export const SchedulesPage: React.FC = () => {
               <span>Prepare Chart</span>
             </button>
             <button
-              onClick={() => setCreateModalOpen(true)}
-              className="btn-secondary"
+              disabled
+              title="This feature is not available yet. Runs are created by the daily simulator; the server has no route to create one here."
+              className="btn-secondary opacity-50 cursor-not-allowed"
             >
               <Plus className="w-4 h-4" />
-              <span>Schedule Run</span>
+              <span>This feature is not available yet.</span>
             </button>
           </div>
         }
@@ -498,11 +503,11 @@ export const SchedulesPage: React.FC = () => {
       <Modal
         isOpen={!!delayModalSchedule}
         onClose={() => setDelayModalSchedule(null)}
-        title="Update Operational Delay & Running Status"
+        title="Set or clear the delay of this run"
         maxWidth="md"
       >
         {delayModalSchedule && (
-          <form onSubmit={handleSaveDelay} className="space-y-4">
+          <form onSubmit={(e) => handleSaveDelay(e, false)} className="space-y-4">
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
               <div className="font-bold text-slate-800">
                 Train: {delayModalSchedule.trainNumber || delayModalSchedule.train_number || trainMap.get(delayModalSchedule.trainId || 0)?.trainNumber} - {delayModalSchedule.trainName || delayModalSchedule.train_name || trainMap.get(delayModalSchedule.trainId || 0)?.trainName}
@@ -513,61 +518,20 @@ export const SchedulesPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="form-label">
-                Delay In Minutes (delayMinutes) *
-              </label>
-              <input
-                type="number"
-                min={0}
-                required
-                value={delayInput}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setDelayInput(val);
-                  if (val > 0 && statusInput === 'ON_TIME') {
-                    setStatusInput('DELAYED');
-                  } else if (val === 0 && statusInput === 'DELAYED') {
-                    setStatusInput('ON_TIME');
-                  }
-                }}
-                className="form-input mono"
-              />
-              <p className="mt-1 text-meta">
-                0 = On Time. Greater than 0 marks delay automatically.
-              </p>
+              <label className="form-label" htmlFor="delay-minutes">Delay in minutes *</label>
+              <input id="delay-minutes" type="number" min={1} max={1440} required value={delayInput} onChange={(e) => setDelayInput(Number(e.target.value))} className="form-input mono" />
+              <p className="mt-1 text-meta">1 to 1440. The run becomes DELAYED and the delay appears on the public Alerts strip, Live Trains and Track your train. Passengers with a CONFIRMED or RAC ticket get a notification.</p>
             </div>
-
             <div>
-              <label className="form-label">
-                Schedule Running Status *
-              </label>
-              <select
-                value={statusInput}
-                onChange={(e) => setStatusInput(e.target.value as ScheduleStatus)}
-                className="form-input"
-              >
-                <option value="ON_TIME">ON_TIME</option>
-                <option value="DELAYED">DELAYED</option>
-                <option value="CANCELLED">CANCELLED</option>
-                <option value="RESCHEDULED">RESCHEDULED</option>
-              </select>
+              <label className="form-label" htmlFor="delay-reason">Reason (optional, kept in the audit log)</label>
+              <input id="delay-reason" type="text" maxLength={200} value={delayReason} onChange={(e) => setDelayReason(e.target.value)} className="form-input" placeholder="for example: signal failure" />
             </div>
-
-            <div className="form-section-divider flex items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setDelayModalSchedule(null)}
-                className="btn-ghost"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isUpdatingDelay}
-                className="btn-secondary"
-              >
-                {isUpdatingDelay ? 'Saving...' : 'Update Delay'}
-              </button>
+            <div className="form-section-divider flex items-center justify-end gap-2.5 flex-wrap">
+              <button type="button" onClick={() => setDelayModalSchedule(null)} className="btn-ghost">Cancel</button>
+              {Number(delayModalSchedule.delayMinutes || 0) > 0 && (
+                <button type="button" disabled={isUpdatingDelay} onClick={(e) => handleSaveDelay(e as any, true)} className="btn-secondary">Clear delay</button>
+              )}
+              <button type="submit" disabled={isUpdatingDelay} className="btn-secondary">{isUpdatingDelay ? 'Saving...' : 'Set delay'}</button>
             </div>
           </form>
         )}
@@ -726,18 +690,6 @@ export const SchedulesPage: React.FC = () => {
                     <span className="text-[11px] text-slate-500 block">Active Holds Cancelled</span>
                     <span className="font-bold text-sm text-slate-800">
                       {chartResult.summary.activeHoldsCancelled ?? 0}
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-white/80 border border-emerald-200">
-                    <span className="text-[11px] text-slate-500 block">Unused Quota Seats Released</span>
-                    <span className="font-bold text-sm text-slate-800">
-                      {chartResult.summary.unusedQuotaSeatsReleased ?? 0}
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-white/80 border border-emerald-200">
-                    <span className="text-[11px] text-slate-500 block">Auto-Upgrades Processed</span>
-                    <span className="font-bold text-sm text-slate-800">
-                      {chartResult.summary.autoUpgradesProcessed ?? 0}
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white/80 border border-emerald-200">

@@ -7,6 +7,7 @@ const {
 } = require('../controllers/trainController');
 
 const { authenticate } = require('../middleware/auth');
+const { getRunStatus } = require('../controllers/publicInfoController');
 const { getTrainLiveStatus } = require('../services/liveStatusService');
 
 const router = express.Router();
@@ -25,6 +26,8 @@ router.get('/:trainId/live-status', authenticate, async (req, res, next) => {
     next(error);
   }
 });
+// Public run status for the Track your train card (no live GPS)
+router.get('/:trainId/run-status', getRunStatus);
 router.get('/:trainId', getTrainById);
 router.get('/:trainId/availability', getTrainAvailability);
 

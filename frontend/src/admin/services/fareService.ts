@@ -1,11 +1,17 @@
-import { API_CONFIG } from '../config/api.config';
-import { FareRule } from '../types/fare';
+import { isServiceMock } from '../config/api.config';
+import { FareRule, RealFareCalculation } from '../types/fare';
 import { httpRequest } from './http.client';
 import { mockStore, simulateLatency } from './mock.client';
 
 export const fareService = {
+  /** The real fare from the database function every booking uses (always the live API, there is no demo version). */
+  async calculate(params: { classCode: string; distanceKm: number; trainType: string; quota: string; concession: string }): Promise<RealFareCalculation> {
+    const qs = new URLSearchParams({ ...params, distanceKm: String(params.distanceKm) }).toString();
+    return httpRequest<RealFareCalculation>(`/api/admin/fares/calculate?${qs}`);
+  },
+
   async getFares(): Promise<FareRule[]> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       return mockStore.getFares();
     }
@@ -13,7 +19,7 @@ export const fareService = {
   },
 
   async updateFare(fareId: number, payload: Partial<Omit<FareRule, 'fareId' | 'classType'>>): Promise<FareRule> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getFares();
       const idx = list.findIndex((f) => f.fareId === fareId);

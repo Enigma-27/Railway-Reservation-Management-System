@@ -4,11 +4,12 @@ import { StatusBadge } from '../components/StatusBadge';
 import { Armchair, ArrowUpRight } from 'lucide-react';
 
 export const VacanciesPage: React.FC = () => {
-  const { data, activeStaff } = useStaff();
+  const { data } = useStaff();
 
-  const trainId = activeStaff.assignedTrainId || 101;
-  const vacancies = data.vacancies.filter(v => v.trainId === trainId);
-  const racCandidates = data.manifest.filter(m => m.trainId === trainId && (m.bookingStatus === 'RAC' || m.bookingStatus === 'WAITING_LIST'));
+  // The server has no vacant-berth list for staff, so this list stays empty.
+  // The RAC / waiting-list rows below come from the prepared chart.
+  const vacancies = data.vacancies;
+  const racCandidates = data.manifest.filter(m => m.bookingStatus === 'RAC' || m.bookingStatus === 'WAITING_LIST');
 
   return (
     <div className="space-y-6">
@@ -21,7 +22,10 @@ export const VacanciesPage: React.FC = () => {
               <span>Live Vacant Berths in Train Pool</span>
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Berths vacated by no-show passengers or cancellations available for dynamic RAC reallocation.
+              Berths vacated by no-show passengers or cancellations. The database re-allocates them to RAC and waiting-list passengers by itself.
+            </p>
+            <p className="text-[11px] text-amber-700 mt-1">
+              The server has no vacant-berth list for staff, so no berth rows can be shown here.
             </p>
           </div>
           <span className="text-xs font-mono font-bold bg-orange-50 text-orange-700 border border-orange-200 px-2.5 py-1 rounded-lg">
@@ -49,8 +53,8 @@ export const VacanciesPage: React.FC = () => {
                 </tr>
               ) : (
                 vacancies.map(v => {
-                  const fromStn = data.stations.find(s => s.stationId === v.availableFromStationId)?.stationCode || 'BCT';
-                  const toStn = data.stations.find(s => s.stationId === v.availableToStationId)?.stationCode || 'NDLS';
+                  const fromStn = data.stations.find(s => s.stationId === v.availableFromStationId)?.stationCode || '-';
+                  const toStn = data.stations.find(s => s.stationId === v.availableToStationId)?.stationCode || '-';
 
                   return (
                     <tr key={v.vacancyId} className="hover:bg-slate-50/80 transition-colors">
@@ -122,17 +126,14 @@ export const VacanciesPage: React.FC = () => {
                 racCandidates.map(p => (
                   <tr key={p.manifestId} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3 px-4">
-                      <StatusBadge
-                        status={p.bookingStatus === 'RAC' ? `RAC-${p.racRank || 1}` : `WL-${p.wlRank || 1}`}
-                        size="sm"
-                      />
+                      <StatusBadge status={p.bookingStatus} size="sm" />
                     </td>
                     <td className="py-3 px-4 font-mono font-semibold text-slate-800">{p.pnr}</td>
                     <td className="py-3 px-4">
                       <div className="font-bold text-slate-900">{p.name}</div>
-                      <div className="text-[10px] text-slate-500">{p.age}y / {p.gender}</div>
+                      <div className="text-[10px] text-slate-500">{p.age ?? '-'}y / {p.gender ?? '-'}</div>
                     </td>
-                    <td className="py-3 px-4 text-slate-700">{p.classType} • {p.quota}</td>
+                    <td className="py-3 px-4 text-slate-700">{p.classType ?? '-'} • {p.quota ?? '-'}</td>
                     <td className="py-3 px-4">
                       <StatusBadge status={p.boardingStatus} size="sm" />
                     </td>

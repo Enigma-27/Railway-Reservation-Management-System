@@ -127,23 +127,23 @@ async function runTests() {
     // 1. Staff Member: Ticket Collector (EMP-TC-101, staffId: 1)
     const staffLogin = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin.status === 200, 'Staff (EMP-TC-101) logged in successfully');
     const tokenStaff = staffLogin.data.data.token;
 
     // 2. Admin
     const adminLogin = await request('POST', '/api/auth/admin/login', {
-      email: 'admin@railways.gov.in',
-      password: 'AdminPassword123!'
+      email: 'admin@rrms.in',
+      password: 'Demo@123'
     });
-    assert(adminLogin.status === 200, 'Admin (admin@railways.gov.in) logged in successfully');
+    assert(adminLogin.status === 200, 'Admin (admin@rrms.in) logged in successfully');
     const tokenAdmin = adminLogin.data.data.token;
 
     // 3. Passenger
     const userLogin = await request('POST', '/api/auth/passenger/login', {
       email: 'user26009_5357@example.com',
-      password: 'Password123!'
+      password: 'Demo@123'
     });
     assert(userLogin.status === 200, 'Passenger logged in successfully');
     const tokenPassenger = userLogin.data.data.token;
@@ -367,6 +367,12 @@ async function runTests() {
     const auditAfterRacNoShow = await runInventoryAudit();
     console.log(`  Master inventory audit after RAC no-show: ${auditAfterRacNoShow.mismatches} mismatches of ${auditAfterRacNoShow.total}`);
     assert(auditAfterRacNoShow.mismatches === 0, 'Inventory audit MUST stay 0 mismatches of 1,015 after RAC no-show');
+
+    // POST /api/staff/promote was removed on purpose: promotion happens only inside sp_promote_passenger
+    // (on cancel, no-show, TDR and chart time). The route must not exist any more.
+    const removedPromote = await request('POST', '/api/staff/promote', { pnr: '2849100015', passengerNo: 1 }, tokenStaff);
+    assert(removedPromote.status === 404, 'POST /api/staff/promote no longer exists (404)');
+    assert(removedPromote.data.error && removedPromote.data.error.code === 'NOT_FOUND', 'Removed promote route answers the standard NOT_FOUND error');
 
     // Clean up temporary staff assignment
     await pool.query('DELETE FROM STAFF_ASSIGNMENT WHERE assign_id = 8888');

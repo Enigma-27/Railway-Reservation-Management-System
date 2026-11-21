@@ -1,15 +1,30 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Railway Reservation & Management System</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="description" content="Railway Reservation & Management System (RRMS): search trains, book seats, check PNR status and follow live trains." />
+    <meta name="theme-color" content="#070c18" />
+    <title>RRMS - Railway Reservation & Management System</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Set the theme BEFORE the first paint (no flash of the wrong theme): saved choice, else the system preference -->
+    <script>
+      (function () {
+        var t = null;
+        try { t = localStorage.getItem('rrms_theme'); } catch (e) { /* storage off */ }
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
+    <link rel="preload" as="image" href="/train-sunset.jpg" fetchpriority="high" />
+    <link rel="stylesheet" href="/rrms-theme.css" />
+    <link rel="stylesheet" href="/rrms-palette.css" />
   </head>
-  <body class="bg-gray-50 text-slate-800 min-h-screen">
+  <body>
     <div id="root"></div>
+    <script src="/rrms-config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

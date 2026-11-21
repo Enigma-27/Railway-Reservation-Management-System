@@ -1,4 +1,4 @@
-import { API_CONFIG } from '../config/api.config';
+import { isServiceMock } from '../config/api.config';
 import { ClassType, Quota } from '../constants/enums';
 import { Train, TrainDetail, TrainRouteStop } from '../types/train';
 import { httpRequest } from './http.client';
@@ -6,7 +6,7 @@ import { mockStore, simulateLatency } from './mock.client';
 
 export const trainService = {
   async getTrains(): Promise<Train[]> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       return mockStore.getTrains();
     }
@@ -14,7 +14,7 @@ export const trainService = {
   },
 
   async getTrainById(trainId: number): Promise<TrainDetail> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const train = mockStore.getTrains().find((t) => t.trainId === trainId);
       if (!train) throw new Error(`Train with ID ${trainId} not found.`);
@@ -50,7 +50,7 @@ export const trainService = {
   },
 
   async createTrain(payload: Omit<Train, 'trainId'>): Promise<Train> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getTrains();
       const newId = Math.max(...list.map((t) => t.trainId), 0) + 1;
@@ -76,7 +76,7 @@ export const trainService = {
   },
 
   async updateTrain(trainId: number, payload: Partial<Omit<Train, 'trainId'>>): Promise<Train> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getTrains();
       const idx = list.findIndex((t) => t.trainId === trainId);
@@ -106,7 +106,7 @@ export const trainService = {
   },
 
   async deleteTrain(trainId: number): Promise<void> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getTrains();
       const target = list.find((t) => t.trainId === trainId);
@@ -146,7 +146,7 @@ export const trainService = {
     classType?: ClassType,
     quota: Quota = 'GENERAL'
   ) {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const availabilities = mockStore.getAvailability();
       const matches = availabilities.filter(

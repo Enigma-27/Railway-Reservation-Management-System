@@ -59,4 +59,20 @@ When backend development commences, it must implement:
 
 ## 3. API Contract Adherence
 
-The backend must match every endpoint defined in [docs/API_CONTRACT.md](file:///c:/Users/Rohan/Desktop/dbms%20pbl/docs/API_CONTRACT.md) without deviating in URL path, request body fields, or response schema.
+The backend must match every endpoint defined in [docs/API_CONTRACT.md](../docs/API_CONTRACT.md) without deviating in URL path, request body fields, or response schema.
+
+---
+
+## 4. Live Trains, booking rules, payment and TDR code (Prompt 13)
+
+| File | What it does |
+| :--- | :--- |
+| `src/controllers/liveTrainsController.js` | `GET /api/live-trains` (one SQL query per page) and `GET /api/live-trains/:scheduleId` (per class and per quota). Seat numbers come from `SCHEDULE_CLASS_INVENTORY`. |
+| `src/services/bookingRulesService.js` | Reads the booking rules from SETTING and CONCESSION_RULE; `assertPassengerLimit` (6, and 4 for Tatkal) used by the booking and counter-booking controllers; `checkPassengers` repeats the booking checks for the fare preview. |
+| `src/controllers/bookingPreviewController.js` | `GET /api/booking-rules`, `POST /api/bookings/fare-preview` (fare lines from `fn_calculate_fare`), `POST /api/bookings/:pnr/cancel-unpaid` (`sp_cancel_unpaid_booking`). |
+| `src/services/paymentOrderService.js` | Payment confirm path. Now stores the real payment method (`methodFromGatewayPayment`), and `expireAbandonedOrders` closes unpaid orders as `EXPIRED` (still checked for 24 hours). |
+| `src/controllers/paymentController.js` | `createOrder` reuses the open order of a booking (`reused: true`) and finishes an already-paid one (`alreadyPaid: true`). |
+| `src/services/tdrEligibilityService.js` | `GET /api/tdr/eligibility/:pnr` and the plain refusal messages of `POST /api/tdr` (same rules as `sp_file_tdr`). |
+| `src/controllers/adminContactController.js`, `adminFareCalcController.js`, `adminQuotaController.js` | Admin: Contact Us messages, the real fare calculator, quota overview. |
+
+Tests: `npm run test:d5` (Live Trains, rules, fare preview, cancel unpaid, real method, one open order, expired orders, signed webhook, reconcile, "backend down while paying", TDR eligibility). It is part of `npm run test:all`.

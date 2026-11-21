@@ -1,7 +1,7 @@
 -- =============================================================================
 -- Railway Reservation & Management System (MySQL 8.0)
 -- File: 01_schema.sql
--- Description: DDL for database railway_db, 37 tables in 3NF, PK, FK, NOT NULL,
+-- Description: DDL for database railway_db, 38 tables in 3NF, PK, FK, NOT NULL,
 --              UNIQUE, CHECK, DEFAULT constraints, and performance indexes.
 -- =============================================================================
 
@@ -16,6 +16,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 -- Drop tables in reverse dependency order if they exist
 DROP TABLE IF EXISTS CHART_SNAPSHOT;
+DROP TABLE IF EXISTS PAYMENT_ORDER;
 DROP TABLE IF EXISTS REPORT;
 DROP TABLE IF EXISTS AUDIT_LOG;
 DROP TABLE IF EXISTS CLEANLINESS_REPORT;
@@ -324,7 +325,8 @@ CREATE TABLE FARE (
     rate_per_km DECIMAL(6,2) NOT NULL,
     PRIMARY KEY (fare_id),
     KEY idx_fare_class (class_id),
-    CONSTRAINT fk_fare_class FOREIGN KEY (class_id) REFERENCES SEAT_CLASS (class_id)
+    CONSTRAINT fk_fare_class FOREIGN KEY (class_id) REFERENCES SEAT_CLASS (class_id),
+    CONSTRAINT chk_fare_slab CHECK (rate_per_km >= 0 AND min_distance_km >= 0 AND max_distance_km >= min_distance_km)
 ) ENGINE=InnoDB;
 
 -- 18. CONCESSION_RULE (13 concession rules)
@@ -338,18 +340,28 @@ CREATE TABLE CONCESSION_RULE (
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (rule_id),
     KEY idx_conc_rule_class (class_id),
-    CONSTRAINT fk_conc_rule_class FOREIGN KEY (class_id) REFERENCES SEAT_CLASS (class_id)
+    CONSTRAINT fk_conc_rule_class FOREIGN KEY (class_id) REFERENCES SEAT_CLASS (class_id),
+    CONSTRAINT chk_conc_rule_pct CHECK (discount_pct >= 0 AND discount_pct <= 100),
+    CONSTRAINT chk_conc_rule_group CHECK (train_group IN ('STANDARD', 'PREMIUM'))
 ) ENGINE=InnoDB;
 
 -- 19. REFUND_RULE (4 cancellation refund slabs)
 CREATE TABLE REFUND_RULE (
     rule_id INT NOT NULL,
+    -- class_id NULL = a general rule for every class; a class rule beats a general rule of the same slab.
+    -- fn_calculate_cancellation_refund reads this table (slab = highest min_hours the time has reached).
+    class_id INT NULL,
     min_hours INT NOT NULL,
     max_hours INT NULL,
     deduction_pct DECIMAL(5,2) NOT NULL,
     flat_min_charge DECIMAL(8,2) NOT NULL,
     clerkage DECIMAL(8,2) NOT NULL DEFAULT 60.00,
-    PRIMARY KEY (rule_id)
+    PRIMARY KEY (rule_id),
+    KEY idx_refund_rule_class (class_id),
+    CONSTRAINT fk_refund_rule_class FOREIGN KEY (class_id) REFERENCES SEAT_CLASS (class_id),
+    CONSTRAINT chk_refund_rule_hours CHECK (min_hours >= 0 AND (max_hours IS NULL OR max_hours > min_hours)),
+    CONSTRAINT chk_refund_rule_pct CHECK (deduction_pct >= 0 AND deduction_pct <= 100),
+    CONSTRAINT chk_refund_rule_money CHECK (flat_min_charge >= 0 AND clerkage >= 0)
 ) ENGINE=InnoDB;
 
 -- 20. TDR_RULE (6 TDR refund rules)
@@ -433,7 +445,7 @@ CREATE TABLE PASSENGER_BOOKING (
 
 -- 24. RESERVATION (30,852 seat allotments and queue states)
 CREATE TABLE RESERVATION (
-    res_id INT NOT NULL,
+    res_id INT NOT NULL AUTO_INCREMENT,
     pnr VARCHAR(10) NOT NULL,
     passenger_no INT NOT NULL,
     schedule_id INT NOT NULL,
@@ -451,10 +463,10 @@ CREATE TABLE RESERVATION (
 
 -- 25. PAYMENT (16,375 payment records)
 CREATE TABLE PAYMENT (
-    payment_id INT NOT NULL,
+    payment_id INT NOT NULL AUTO_INCREMENT,
     pnr VARCHAR(10) NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
-    method ENUM('CREDIT_CARD', 'DEBIT_CARD', 'UPI', 'NET_BANKING', 'CASH') NOT NULL,
+    method ENUM('CREDIT_CARD', 'DEBIT_CARD', 'UPI', 'NET_BANKING', 'CASH', 'UNKNOWN') NOT NULL,
     status ENUM('PENDING', 'SUCCESS', 'FAILED') NOT NULL,
     gateway_payment_id VARCHAR(64) NOT NULL,
     paid_at DATETIME NOT NULL,
@@ -465,9 +477,31 @@ CREATE TABLE PAYMENT (
     CONSTRAINT chk_payment_amount CHECK (amount > 0)
 ) ENGINE=InnoDB;
 
+-- 25b. PAYMENT_ORDER: every Razorpay order we create. MySQL is the source of truth for orders
+-- (MongoDB only keeps an optional audit copy). No seed rows. Status changes only through
+-- sp_set_payment_order_result. amount_paise always equals BOOKING.total_fare in paise.
+CREATE TABLE PAYMENT_ORDER (
+    order_id VARCHAR(40) NOT NULL,
+    pnr VARCHAR(10) NOT NULL,
+    amount_paise BIGINT NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'INR',
+    -- EXPIRED: the booking hold ended without a payment. The order is still checked for 24 hours, because the
+    -- gateway window can stay open and a payment may still arrive (it then becomes LATE_PAID with an automatic refund).
+    status ENUM('CREATED', 'PAID', 'LATE_PAID', 'FAILED', 'EXPIRED') NOT NULL DEFAULT 'CREATED',
+    gateway_payment_id VARCHAR(40) NULL,
+    created_at DATETIME NOT NULL,
+    paid_at DATETIME NULL,
+    last_checked_at DATETIME NULL,
+    PRIMARY KEY (order_id),
+    KEY idx_payment_order_pnr (pnr),
+    KEY idx_payment_order_status_created (status, created_at),
+    CONSTRAINT fk_payment_order_booking FOREIGN KEY (pnr) REFERENCES BOOKING (pnr) ON DELETE CASCADE,
+    CONSTRAINT chk_payment_order_amount CHECK (amount_paise > 0)
+) ENGINE=InnoDB;
+
 -- 26. CANCELLATION (435 cancellation records)
 CREATE TABLE CANCELLATION (
-    cancel_id INT NOT NULL,
+    cancel_id INT NOT NULL AUTO_INCREMENT,
     pnr VARCHAR(10) NOT NULL,
     passenger_no INT NULL,
     reason VARCHAR(128) NOT NULL,
@@ -500,13 +534,20 @@ CREATE TABLE TDR_FILING (
 
 -- 28. REFUND (436 refunds)
 CREATE TABLE REFUND (
-    refund_id INT NOT NULL,
+    refund_id INT NOT NULL AUTO_INCREMENT,
     cancel_id INT NULL,
     tdr_ref_no VARCHAR(32) NULL,
     payment_id INT NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     reason ENUM('CANCELLATION', 'TDR_APPROVED', 'WAITLIST_PURGE', 'PAYMENT_AFTER_EXPIRY', 'TRAIN_CANCELLED') NOT NULL,
     status ENUM('PENDING', 'PROCESSED', 'FAILED') NOT NULL DEFAULT 'PENDING',
+    -- Refund life: PENDING (row created) -> PROCESSED (gateway done) or FAILED (gateway failed, can be retried).
+    -- Changed only through sp_set_refund_result.
+    gateway_refund_id VARCHAR(40) NULL,
+    failure_reason VARCHAR(255) NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    last_attempt_at DATETIME NULL,
+    processed_at DATETIME NULL,
     PRIMARY KEY (refund_id),
     KEY idx_refund_cancel (cancel_id),
     KEY idx_refund_tdr (tdr_ref_no),
@@ -522,7 +563,7 @@ CREATE TABLE REFUND (
 
 -- 29. TICKET_VERIFICATION (1 record)
 CREATE TABLE TICKET_VERIFICATION (
-    verify_id INT NOT NULL,
+    verify_id INT NOT NULL AUTO_INCREMENT,
     staff_id INT NOT NULL,
     pnr VARCHAR(10) NOT NULL,
     passenger_no INT NOT NULL,
@@ -665,7 +706,7 @@ CREATE TABLE REPORT (
 
 -- 37. CHART_SNAPSHOT (734 snapshot records)
 CREATE TABLE CHART_SNAPSHOT (
-    snapshot_id INT NOT NULL,
+    snapshot_id INT NOT NULL AUTO_INCREMENT,
     schedule_id INT NOT NULL,
     pnr VARCHAR(10) NOT NULL,
     passenger_no INT NOT NULL,

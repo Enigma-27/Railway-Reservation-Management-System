@@ -112,7 +112,7 @@ async function runTests() {
     // Unauthorized credentials error
     const invalidCredsRes = await request('/api/auth/passenger/login', {
       method: 'POST',
-      body: JSON.stringify({ email: 'rahul.sharma@example.com', password: 'WrongPassword999!' })
+      body: JSON.stringify({ email: 'passenger@rrms.in', password: 'WrongPassword999!' })
     });
     assert(invalidCredsRes.status === 401, 'Invalid credentials returns HTTP 401');
     assert(invalidCredsRes.data.error.code === 'UNAUTHORIZED', 'Error code is UNAUTHORIZED');
@@ -166,12 +166,12 @@ async function runTests() {
     assert(newLoginRes.data.data.userId === registerRes.data.data.userId, 'User ID matches registered ID');
     assert(typeof newLoginRes.data.data.token === 'string', 'JWT token generated for new user');
 
-    // 3d. Login with seeded user rahul.sharma@example.com (Seed Scrypt verification)
+    // 3d. Login with seeded user passenger@rrms.in (Seed Scrypt verification)
     const seedLoginRes = await request('/api/auth/passenger/login', {
       method: 'POST',
       body: JSON.stringify({
-        email: 'rahul.sharma@example.com',
-        password: 'Password123!'
+        email: 'passenger@rrms.in',
+        password: 'Demo@123'
       })
     });
     assert(seedLoginRes.status === 200, 'Seed user (Rahul Sharma) login succeeds with HTTP 200');
@@ -181,24 +181,24 @@ async function runTests() {
     assert(seedLoginRes.data.data.monthlyBookingsAllowed === 24, 'Monthly bookings allowed is 24 for Aadhaar verified user');
     const seedToken = seedLoginRes.data.data.token;
 
-    // 3e. Staff Login (EMP-TC-101 / StaffPassword123!)
+    // 3e. Staff Login (EMP-TC-101 / Demo@123)
     const staffLoginRes = await request('/api/auth/staff/login', {
       method: 'POST',
       body: JSON.stringify({
         employeeId: 'EMP-TC-101',
-        password: 'StaffPassword123!'
+        password: 'Demo@123'
       })
     });
     assert(staffLoginRes.status === 200, 'Staff login succeeds with HTTP 200');
     assert(staffLoginRes.data.data.role === 'STAFF', 'Role is STAFF');
     assert(staffLoginRes.data.data.designation === 'Ticket Collector (TC)', 'Designation is Ticket Collector');
 
-    // 3f. Admin Login (admin@railways.gov.in / AdminPassword123!)
+    // 3f. Admin Login (admin@rrms.in / Demo@123)
     const adminLoginRes = await request('/api/auth/admin/login', {
       method: 'POST',
       body: JSON.stringify({
-        email: 'admin@railways.gov.in',
-        password: 'AdminPassword123!'
+        email: 'admin@rrms.in',
+        password: 'Demo@123'
       })
     });
     assert(adminLoginRes.status === 200, 'Admin login succeeds with HTTP 200');
@@ -212,7 +212,7 @@ async function runTests() {
     });
     assert(meRes.status === 200, 'GET /me returns HTTP 200');
     assert(meRes.data.data.userId === 50001, 'GET /me returns user_id 50001');
-    assert(meRes.data.data.email === 'rahul.sharma@example.com', 'GET /me returns email');
+    assert(meRes.data.data.email === 'passenger@rrms.in', 'GET /me returns email');
     assert(meRes.data.data.phone === '+91-9876543210', 'GET /me returns phone');
     assert(meRes.data.data.role === 'PASSENGER', 'GET /me returns role');
     assert(meRes.data.data.accountStatus === 'ACTIVE', 'GET /me returns account_status ACTIVE');

@@ -1,3 +1,5 @@
+require('./helpers/testClock');
+const mockGateway = require('./helpers/mockRazorpay').install();
 const path = require('path');
 const crypto = require('crypto');
 const { execSync } = require('child_process');
@@ -56,6 +58,17 @@ async function request(method, endpoint, body = null, token = null) {
 let totalTests = 0;
 let passedTests = 0;
 
+// Raw gateway replies in MongoDB are a best-effort audit copy (not awaited by the API), so wait a moment for them
+async function waitForMongoDoc(db, collection, query, timeoutMs = 4000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const doc = await db.collection(collection).findOne(query);
+    if (doc) return doc;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return db.collection(collection).findOne(query);
+}
+
 function assert(condition, message) {
   totalTests++;
   if (!condition) {
@@ -112,8 +125,8 @@ async function runTests() {
 
     // Login Passenger 1 (Rahul Sharma - 50001)
     const p1Login = await request('POST', '/api/auth/passenger/login', {
-      email: 'rahul.sharma@example.com',
-      password: 'Password123!'
+      email: 'passenger@rrms.in',
+      password: 'Demo@123'
     });
     assert(p1Login.status === 200, 'Passenger 1 (Rahul Sharma) logged in successfully');
     const token1 = p1Login.data.data.token;
@@ -121,8 +134,8 @@ async function runTests() {
 
     // Login Passenger 2 (Priya Patel - 50002)
     const p2Login = await request('POST', '/api/auth/passenger/login', {
-      email: 'priya.patel@example.com',
-      password: 'Password123!'
+      email: 'chain@rrms.in',
+      password: 'Demo@123'
     });
     assert(p2Login.status === 200, 'Passenger 2 (Priya Patel) logged in successfully');
     const token2 = p2Login.data.data.token;
@@ -131,7 +144,7 @@ async function runTests() {
     // Login Staff (Vikram Singh - EMP-TC-101)
     const staffLogin = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin.status === 200, 'Staff (EMP-TC-101) logged in successfully');
     const staffToken = staffLogin.data.data.token;
@@ -199,9 +212,14 @@ async function runTests() {
     const expectedPaise = Math.round(fare1 * 100);
     assert(orderRes1.data.data.amount === expectedPaise, `Amount in paise (${orderRes1.data.data.amount}) matches exact integer conversion (${expectedPaise})`);
 
-    // Verify raw Razorpay reply saved in MongoDB raw_gateway_replies
+    // The order is saved in MySQL (PAYMENT_ORDER) first: it is the source of truth
+    const [dbOrder1] = await pool.query('SELECT order_id, pnr, amount_paise, currency, status FROM PAYMENT_ORDER WHERE order_id = ?', [orderRes1.data.data.orderId]);
+    assert(dbOrder1.length === 1, 'Order saved in MySQL PAYMENT_ORDER');
+    assert(dbOrder1[0].pnr === pnr1 && Number(dbOrder1[0].amount_paise) === expectedPaise && dbOrder1[0].status === 'CREATED', 'PAYMENT_ORDER row has the PNR, the fare in paise and status CREATED');
+
+    // The raw Razorpay reply is an optional best-effort audit copy in MongoDB raw_gateway_replies
     const db = getMongoDb();
-    const orderMongoDoc = await db.collection('raw_gateway_replies').findOne({ pnr: pnr1, type: 'order_create' });
+    const orderMongoDoc = await waitForMongoDoc(db, 'raw_gateway_replies', { pnr: pnr1, type: 'order_create' });
     assert(orderMongoDoc !== null, 'Order raw reply stored in MongoDB collection raw_gateway_replies');
     assert(orderMongoDoc.orderId === orderRes1.data.data.orderId, 'MongoDB stored orderId matches returned orderId');
 
@@ -274,7 +292,7 @@ async function runTests() {
     assert(dbPayAfter1.length === 1 && dbPayAfter1[0].status === 'SUCCESS', 'PAYMENT row successfully inserted in MySQL');
 
     // Verify verification logged in MongoDB
-    const verifyDoc1 = await db.collection('raw_gateway_replies').findOne({ pnr: pnr1, type: 'verify_success' });
+    const verifyDoc1 = await waitForMongoDoc(db, 'raw_gateway_replies', { pnr: pnr1, type: 'verify_success' });
     assert(verifyDoc1 !== null, 'Verification reply stored in MongoDB collection raw_gateway_replies');
 
     // Check c: After successful POST /api/payments/razorpay/verify, exactly ONE BOOKING_CONFIRMATION notification exists for that PNR and referenceId equals PNR
@@ -367,22 +385,9 @@ async function runTests() {
     await pool.query('UPDATE BOOKING SET created_at = DATE_SUB(NOW(), INTERVAL 15 MINUTE) WHERE pnr = ?', [pnr3]);
 
     console.log('  [SIMULATED] Simulating late payment via verify API');
-    const { setRazorpayClientOverride } = require('../src/services/gatewayRefundService');
-    const mockLateRazorpayClient = {
-      payments: {
-        refund: async (paymentId, options) => {
-          return {
-            id: `rfnd_sim_${Date.now()}`,
-            entity: 'refund',
-            amount: options.amount,
-            currency: 'INR',
-            payment_id: paymentId,
-            status: 'processed'
-          };
-        }
-      }
-    };
-    setRazorpayClientOverride(mockLateRazorpayClient);
+    // The shared mock gateway (helpers/mockRazorpay.js) answers the refund calls. The refund row is written by SQL as
+    // PENDING and becomes PROCESSED only after the refund service has talked to the (mock) gateway.
+    mockGateway.state.refundMode = 'ok';
 
     const simPaymentId3 = `pay_sim_${Date.now()}_late`;
     const validSignature3 = crypto
@@ -399,7 +404,7 @@ async function runTests() {
         razorpaySignature: validSignature3
       }, token1);
     } finally {
-      setRazorpayClientOverride(null);
+      mockGateway.state.refundMode = 'ok';
     }
 
     assert(lateVerifyRes.status === 200, 'Late payment returns HTTP 200 per Contract 4.3.2');
@@ -423,10 +428,13 @@ async function runTests() {
     );
     assert(dbRefund3.length === 1, 'REFUND row created in MySQL');
     assert(dbRefund3[0].reason === 'PAYMENT_AFTER_EXPIRY', 'MySQL REFUND.reason is PAYMENT_AFTER_EXPIRY');
-    assert(dbRefund3[0].status === 'PROCESSED', 'MySQL REFUND.status is PROCESSED');
+    assert(dbRefund3[0].status === 'PROCESSED', 'MySQL REFUND.status is PROCESSED (it was PENDING when SQL wrote it; the refund service moved it after the gateway answered)');
+    const [dbRefund3b] = await pool.query('SELECT attempts, gateway_refund_id FROM REFUND WHERE refund_id = ?', [dbRefund3[0].refund_id]);
+    assert(Number(dbRefund3b[0].attempts) === 1 && /^rfnd_mock_/.test(dbRefund3b[0].gateway_refund_id || ''), 'REFUND row records one attempt and the gateway refund id');
+    assert(lateVerifyRes.data.data.refund.status === 'PROCESSED' && lateVerifyRes.data.data.refund.gatewayRefund === 'PROCESSED', 'Late payment response shows the refund as PROCESSED after the gateway call');
 
     // Check MongoDB for refund reply or recorded failure
-    const refundDoc = await db.collection('raw_gateway_replies').findOne({
+    const refundDoc = await waitForMongoDoc(db, 'raw_gateway_replies', {
       paymentId: simPaymentId3,
       type: { $in: ['refund_success', 'refund_failure'] }
     });
@@ -600,6 +608,34 @@ async function runTests() {
       holdRes11Min.data.data.secondsRemaining === 0,
       `After setting created_at back 11 minutes, secondsRemaining is 0 (actual: ${holdRes11Min.data.data.secondsRemaining})`
     );
+
+    // -------------------------------------------------------------------------
+    // TEST 12: NEW BOOKING CHECKS THROUGH THE API (clock pinned at 2026-10-17 19:15)
+    // -------------------------------------------------------------------------
+    console.log('\n--- TEST 12: Booking Checks (JOURNEY_PAST, OUTSIDE_BOOKING_WINDOW, QUOTA_NOT_ELIGIBLE) ---');
+    const [run129] = await pool.query(
+      "SELECT schedule_id, DATE_FORMAT(journey_date, '%Y-%m-%d') AS jd FROM TRAIN_SCHEDULE WHERE train_id = 129 AND journey_date = '2026-10-20'"
+    );
+    const runId129 = run129[0].schedule_id;
+
+    // The train already left: move the run to a date before the pinned clock (test only, restored below)
+    await pool.query("UPDATE TRAIN_SCHEDULE SET journey_date = '2026-10-16' WHERE schedule_id = ?", [runId129]);
+    const pastRes = await request('POST', '/api/bookings', { ...bookingPayload1, journeyDate: '2026-10-16' }, token1);
+    assert(pastRes.status === 400 && pastRes.data.error.code === 'JOURNEY_PAST', 'Booking a train that has already left is refused with JOURNEY_PAST');
+
+    // Too far ahead: the journey is more than BOOKING_WINDOW_DAYS (7) after the pinned clock
+    await pool.query("UPDATE TRAIN_SCHEDULE SET journey_date = '2026-11-20' WHERE schedule_id = ?", [runId129]);
+    const farRes = await request('POST', '/api/bookings', { ...bookingPayload1, journeyDate: '2026-11-20' }, token1);
+    assert(farRes.status === 400 && farRes.data.error.code === 'OUTSIDE_BOOKING_WINDOW', 'Booking beyond the booking window is refused with OUTSIDE_BOOKING_WINDOW');
+    await pool.query("UPDATE TRAIN_SCHEDULE SET journey_date = '2026-10-20' WHERE schedule_id = ?", [runId129]);
+
+    // LADIES quota needs every passenger aged 12 or more to be FEMALE
+    const ladiesMale = await request('POST', '/api/bookings', {
+      ...bookingPayload1,
+      quota: 'LADIES',
+      passengers: [{ name: 'Male Passenger', age: 30, gender: 'MALE', idProofType: 'AADHAAR', idProofReference: 'XXXX-XXXX-1010' }]
+    }, token1);
+    assert(ladiesMale.status === 400 && ladiesMale.data.error.code === 'QUOTA_NOT_ELIGIBLE', 'LADIES quota with a male passenger is refused with QUOTA_NOT_ELIGIBLE');
 
     console.log('\n================================================================');
     console.log(` ALL ${passedTests}/${totalTests} TESTS PASSED SUCCESSFULLY!`);

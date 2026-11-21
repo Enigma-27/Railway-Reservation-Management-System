@@ -5,9 +5,9 @@
  * Rules & Guarantees:
  * 1. Reads credentials strictly from database/.env
  * 2. Uses mysql2 batch inserts with parameterized statements (NO LOAD DATA INFILE)
- * 3. Safe to re-run: disables foreign key checks, truncates all 37 tables, batch-inserts,
+ * 3. Safe to re-run: disables foreign key checks, truncates all 38 tables, batch-inserts,
  *    and re-enables foreign key checks.
- * 4. Loads all 37 CSV files in exact topological foreign key dependency order.
+ * 4. Loads the 37 seed CSV files (PAYMENT_ORDER has none) in exact topological foreign key dependency order.
  * 5. Handles quotes, commas, NULL values, and ISO timestamps.
  * 6. Logs row counts and verifies foreign key integrity.
  */
@@ -40,7 +40,10 @@ const DB_CONFIG = {
 const SEED_DIR = path.resolve(__dirname, '../seed-data/mysql');
 const BATCH_SIZE = 1000;
 
-// Exact topological loading order for all 37 tables
+// Tables with no seed CSV: they are cleared on every load and start empty (no warning needed)
+const NO_SEED_TABLES = new Set(['PAYMENT_ORDER']);
+
+// Exact topological loading order for all 38 tables
 const TABLES_IN_ORDER = [
   'STATION',
   'TRAIN',
@@ -67,6 +70,7 @@ const TABLES_IN_ORDER = [
   'PASSENGER_BOOKING',
   'RESERVATION',
   'PAYMENT',
+  'PAYMENT_ORDER',
   'CANCELLATION',
   'TDR_FILING',
   'REFUND',
@@ -127,6 +131,7 @@ function formatValue(val) {
 
 async function loadTable(connection, tableName) {
   const filePath = path.join(SEED_DIR, `${tableName}.csv`);
+  if (NO_SEED_TABLES.has(tableName)) return 0;
   if (!fs.existsSync(filePath)) {
     console.warn(`[WARN] File not found: ${filePath}, skipping table ${tableName}`);
     return 0;
@@ -206,7 +211,7 @@ async function main() {
         await connection.query(`DELETE FROM \`${table}\`;`);
       }
     }
-    console.log('✓ All 37 tables cleared cleanly.');
+    console.log(`✓ All ${TABLES_IN_ORDER.length} tables cleared cleanly.`);
 
     console.log('\n[Phase 2] Loading Seed CSV Data via Parameterized Batches...');
     const startTime = Date.now();
@@ -235,7 +240,7 @@ async function main() {
       const match = count === loadedCounts[table] ? 'OK' : 'MISMATCH';
       console.log(`  ${table.padEnd(26)} : ${count.toString().padStart(6)} rows (${match})`);
     }
-    console.log(`\nTotal Rows across 37 tables: ${totalDbRows}`);
+    console.log(`\nTotal Rows across ${TABLES_IN_ORDER.length} tables: ${totalDbRows}`);
 
   } catch (error) {
     console.error('\n[FATAL ERROR]:', error.message);

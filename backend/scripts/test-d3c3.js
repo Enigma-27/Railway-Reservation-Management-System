@@ -152,8 +152,8 @@ async function runTests() {
     console.log('\n--- SETUP: Authenticating Test Users ---');
 
     const adminLogin = await request('POST', '/api/auth/admin/login', {
-      email: 'admin@railways.gov.in',
-      password: 'AdminPassword123!'
+      email: 'admin@rrms.in',
+      password: 'Demo@123'
     });
     assert(adminLogin.status === 200, 'Admin logged in successfully');
     const tokenAdmin = adminLogin.data.data.token;
@@ -161,25 +161,25 @@ async function runTests() {
 
     const staffLogin1 = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin1.status === 200, 'Staff 1 (EMP-TC-101) logged in successfully');
     const tokenStaff1 = staffLogin1.data.data.token;
     const staff1UserId = staffLogin1.data.data.userId;
 
     const passengerLogin1 = await request('POST', '/api/auth/passenger/login', {
-      email: 'rahul.sharma@example.com',
-      password: 'Password123!'
+      email: 'passenger@rrms.in',
+      password: 'Demo@123'
     });
-    assert(passengerLogin1.status === 200, 'Passenger 1 (rahul.sharma@example.com) logged in successfully');
+    assert(passengerLogin1.status === 200, 'Passenger 1 (passenger@rrms.in) logged in successfully');
     const tokenPass1 = passengerLogin1.data.data.token;
     const pass1UserId = passengerLogin1.data.data.userId;
 
     const passengerLogin2 = await request('POST', '/api/auth/passenger/login', {
-      email: 'priya.patel@example.com',
-      password: 'Password123!'
+      email: 'chain@rrms.in',
+      password: 'Demo@123'
     });
-    assert(passengerLogin2.status === 200, 'Passenger 2 (priya.patel@example.com) logged in successfully');
+    assert(passengerLogin2.status === 200, 'Passenger 2 (chain@rrms.in) logged in successfully');
     const tokenPass2 = passengerLogin2.data.data.token;
     const pass2UserId = passengerLogin2.data.data.userId;
 
@@ -616,11 +616,32 @@ async function runTests() {
     assert(concList.status === 200, 'GET /api/admin/concession-rules returns 200 OK');
     assert(concList.data.data.length >= 13, 'List contains at least 13 concession rules');
 
+    // New rule (on purpose): the fare function only knows the train groups STANDARD and PREMIUM, so any other
+    // group is refused (API 400 and a CHECK constraint in MySQL)
+    const badGroupRes = await request('POST', '/api/admin/concession-rules', {
+      concessionType: 'SENIOR_CITIZEN',
+      classId: 1,
+      trainGroup: 'TEST_GROUP',
+      discountPct: 40.0,
+      proofTypes: ['AADHAAR'],
+      isActive: true
+    }, tokenAdmin);
+    assert(badGroupRes.status === 400, 'POST /api/admin/concession-rules refuses an unknown trainGroup with 400');
+    const badPctRes = await request('POST', '/api/admin/concession-rules', {
+      concessionType: 'SENIOR_CITIZEN',
+      classId: 1,
+      trainGroup: 'PREMIUM',
+      discountPct: 150,
+      proofTypes: ['AADHAAR'],
+      isActive: true
+    }, tokenAdmin);
+    assert(badPctRes.status === 400, 'POST /api/admin/concession-rules refuses a discountPct above 100 with 400');
+
     // Create new rule
     const newConcRes = await request('POST', '/api/admin/concession-rules', {
       concessionType: 'SENIOR_CITIZEN',
       classId: 1,
-      trainGroup: 'TEST_GROUP',
+      trainGroup: 'PREMIUM',
       discountPct: 40.0,
       proofTypes: ['AADHAAR'],
       isActive: true
@@ -634,6 +655,8 @@ async function runTests() {
       discountPct: 50.0
     }, tokenAdmin);
     assert(updateConcRes.status === 200, 'PUT /api/admin/concession-rules updated 200 OK');
+    const badUpdateConcRes = await request('PUT', `/api/admin/concession-rules/${newConcId}`, { discountPct: -5 }, tokenAdmin);
+    assert(badUpdateConcRes.status === 400, 'PUT /api/admin/concession-rules refuses a negative discountPct with 400');
 
     const [concAuditAfter] = await pool.query("SELECT COUNT(*) AS cnt FROM AUDIT_LOG WHERE action = 'UPDATE_CONCESSION_RULE'");
     assert(concAuditAfter[0].cnt === concAuditBefore[0].cnt + 1, 'MySQL trigger trg_audit_concession_change recorded UPDATE_CONCESSION_RULE row');
@@ -660,6 +683,13 @@ async function runTests() {
     }, tokenAdmin);
     assert(newRefundRes.status === 201, 'POST /api/admin/refund-rules created 201 Created');
     const newRefundId = newRefundRes.data.data.ruleId;
+    assert(newRefundRes.data.data.classId === null, 'New refund rule without classId is a general rule (classId null)');
+    const dupRefundRes = await request('POST', '/api/admin/refund-rules', { minHours: 120, deductionPct: 10, flatMinCharge: 50 }, tokenAdmin);
+    assert(dupRefundRes.status === 409, 'POST /api/admin/refund-rules refuses a second rule for the same class and slab with 409');
+    const badRefundRes = await request('POST', '/api/admin/refund-rules', { minHours: 130, deductionPct: 101, flatMinCharge: 50 }, tokenAdmin);
+    assert(badRefundRes.status === 400, 'POST /api/admin/refund-rules refuses deductionPct above 100 with 400');
+    const classRefundList = refundList.data.data.filter((r) => r.classId !== null);
+    assert(classRefundList.length >= 28, 'Refund rule list carries the per-class rules (classId) from the seed');
 
     // Update refund rule: trigger trg_audit_refund_rule_change automatically fires
     const [refundAuditBefore] = await pool.query("SELECT COUNT(*) AS cnt FROM AUDIT_LOG WHERE action = 'UPDATE_REFUND_RULE'");
@@ -722,7 +752,7 @@ async function runTests() {
 
       // Verify MySQL Show Full Tables
       const [finalTables] = await pool.query('SHOW FULL TABLES;');
-      console.log(`\nFinal MySQL SHOW FULL TABLES count: ${finalTables.length} (37 base tables + 5 views = 42)`);
+      console.log(`\nFinal MySQL SHOW FULL TABLES count: ${finalTables.length} (38 base tables + 6 views = 44)`);
     }
 
     await closeMongo().catch(() => {});

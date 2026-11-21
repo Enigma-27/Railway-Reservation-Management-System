@@ -15,10 +15,15 @@
     "test:d3c2": "node scripts/test-d3c2.js",
     "test:d3c3": "node scripts/test-d3c3.js",
     "test:d4": "node scripts/test-d4.js",
+    "test:d5": "node scripts/test-d5.js",
     "test:all": "node scripts/test-all.js",
+    "test:smoke": "node scripts/smoke-test.js",
     "simulate:daily": "node scripts/simulate-daily.js",
     "demo:refresh": "node scripts/demo-refresh.js",
-    "demo:chain": "node scripts/demo-chain.js"
+    "demo:chain": "node scripts/demo-chain.js",
+    "demo:clear": "node scripts/demo-clear.js",
+    "test:d6": "node scripts/test-d6.js",
+    "check:routes": "node scripts/check-routes.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

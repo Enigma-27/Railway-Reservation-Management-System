@@ -153,16 +153,16 @@ export const DashboardPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => navigate(ADMIN_ROUTES.BOOKINGS)}
-              className="px-4 py-2 bg-[#2259c2] hover:bg-[#1748a5] text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+              className="px-4 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <Ticket className="w-4 h-4" />
               <span>Inspect Bookings</span>
             </button>
             <button
               onClick={() => navigate(ADMIN_ROUTES.SCHEDULES)}
-              className="px-4 py-2 bg-white border border-[#e2e8f0] hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              className="px-4 py-2 bg-white border border-line hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
             >
-              <Clock className="w-4 h-4 text-[#2259c2]" />
+              <Clock className="w-4 h-4 text-brand" />
               <span>Update Delays</span>
             </button>
           </div>
@@ -234,39 +234,39 @@ export const DashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div
           onClick={() => navigate(ADMIN_ROUTES.TDR)}
-          className="bg-white rounded-2xl border border-[#e2e8f0] p-4 shadow-xs hover:border-[#2259c2]/40 hover:shadow-md cursor-pointer transition-all flex items-center justify-between group"
+          className="bg-white rounded-2xl border border-line p-4 shadow-xs hover:border-brand/40 hover:shadow-md cursor-pointer transition-all flex items-center justify-between group"
         >
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[#edf4ff] text-[#2452b8] border border-blue-100">
+            <div className="p-2.5 rounded-xl bg-brand-soft text-brand-link border border-blue-100">
               <FileCheck2 className="w-5 h-5" />
             </div>
             <div>
               <p className="text-meta font-bold uppercase tracking-wider">Pending TDR Claims</p>
-              <p className="text-xl font-extrabold text-[#172338] tracking-tight">{metrics?.pendingTdrCount ?? 0}</p>
+              <p className="text-xl font-extrabold text-ink tracking-tight">{metrics?.pendingTdrCount ?? 0}</p>
             </div>
           </div>
-          <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-[#2259c2] group-hover:translate-x-0.5 transition-all" />
+          <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-brand group-hover:translate-x-0.5 transition-all" />
         </div>
 
         <div
           onClick={() => navigate(ADMIN_ROUTES.GRIEVANCES)}
-          className="bg-white rounded-2xl border border-[#e2e8f0] p-4 shadow-xs hover:border-amber-300 hover:shadow-md cursor-pointer transition-all flex items-center justify-between group"
+          className="bg-white rounded-2xl border border-line p-4 shadow-xs hover:border-amber-300 hover:shadow-md cursor-pointer transition-all flex items-center justify-between group"
         >
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[#fff5e6] text-[#bd7c17] border border-amber-100">
+            <div className="p-2.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-100">
               <LifeBuoy className="w-5 h-5" />
             </div>
             <div>
               <p className="text-meta font-bold uppercase tracking-wider">Open Grievances</p>
-              <p className="text-xl font-extrabold text-[#172338] tracking-tight">{metrics?.openGrievancesCount ?? 0}</p>
+              <p className="text-xl font-extrabold text-ink tracking-tight">{metrics?.openGrievancesCount ?? 0}</p>
             </div>
           </div>
-          <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-[#bd7c17] group-hover:translate-x-0.5 transition-all" />
+          <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-amber-700 group-hover:translate-x-0.5 transition-all" />
         </div>
 
         <div
           onClick={() => navigate(ADMIN_ROUTES.INCIDENTS)}
-          className="bg-white rounded-2xl border border-[#e2e8f0] p-4 shadow-xs hover:border-rose-300 hover:shadow-md cursor-pointer transition-all flex items-center justify-between group"
+          className="bg-white rounded-2xl border border-line p-4 shadow-xs hover:border-rose-300 hover:shadow-md cursor-pointer transition-all flex items-center justify-between group"
         >
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600 border border-rose-100">
@@ -274,7 +274,7 @@ export const DashboardPage: React.FC = () => {
             </div>
             <div>
               <p className="text-meta font-bold uppercase tracking-wider">Open Safety Incidents</p>
-              <p className="text-xl font-extrabold text-[#172338] tracking-tight">{metrics?.openIncidentsCount ?? 0}</p>
+              <p className="text-xl font-extrabold text-ink tracking-tight">{metrics?.openIncidentsCount ?? 0}</p>
             </div>
           </div>
           <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-rose-600 group-hover:translate-x-0.5 transition-all" />
@@ -284,16 +284,16 @@ export const DashboardPage: React.FC = () => {
       {/* Main 2-Column Section: Recent Bookings & Delayed Runs */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Bookings (2 cols) */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-[#e2e8f0] shadow-xs p-6 flex flex-col justify-between">
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-line shadow-xs p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
               <div className="flex items-center gap-2">
-                <Ticket className="w-5 h-5 text-[#2259c2]" />
-                <h3 className="font-extrabold text-[#172338] text-base tracking-tight">Recent Reservation Transactions</h3>
+                <Ticket className="w-5 h-5 text-brand" />
+                <h3 className="font-extrabold text-ink text-base tracking-tight">Recent Reservation Transactions</h3>
               </div>
               <button
                 onClick={() => navigate(ADMIN_ROUTES.BOOKINGS)}
-                className="text-xs font-bold text-[#2259c2] hover:text-[#1748a5] flex items-center gap-1.5 transition-colors cursor-pointer px-3 py-1.5 rounded-lg hover:bg-blue-50"
+                className="text-xs font-bold text-brand hover:text-brand-hover flex items-center gap-1.5 transition-colors cursor-pointer px-3 py-1.5 rounded-lg hover:bg-blue-50"
               >
                 <span>View All Bookings</span>
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -319,7 +319,7 @@ export const DashboardPage: React.FC = () => {
                     <div key={b.pnr} className="py-3.5 flex items-center justify-between hover:bg-slate-50/60 px-2 rounded-xl transition-colors">
                       <div>
                         <div className="flex items-center gap-2.5">
-                          <span className="font-bold text-[#16243b] text-sm tracking-tight">PNR {b.pnr}</span>
+                          <span className="font-bold text-ink text-sm tracking-tight">PNR {b.pnr}</span>
                           <StatusBadge status={b.bookingStatus} size="sm" />
                         </div>
                         <p className="text-xs text-slate-500 mt-1 font-medium">
@@ -327,7 +327,7 @@ export const DashboardPage: React.FC = () => {
                         </p>
                       </div>
                       <div className="text-right">
-                        <div className="font-extrabold text-[#16243b] text-sm">{formatCurrency(b.totalFare)}</div>
+                        <div className="font-extrabold text-ink text-sm">{formatCurrency(b.totalFare)}</div>
                         <div className="text-[11px] text-slate-400 font-medium mt-0.5">{formatDate(b.journeyDate)}</div>
                       </div>
                     </div>
@@ -344,16 +344,16 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Operational Delay Snapshot (1 col) */}
-        <div className="bg-white rounded-2xl border border-[#e2e8f0] shadow-xs p-6 flex flex-col justify-between">
+        <div className="bg-white rounded-2xl border border-line shadow-xs p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-amber-600" />
-                <h3 className="font-extrabold text-[#172338] text-base tracking-tight">Active Train Delays</h3>
+                <h3 className="font-extrabold text-ink text-base tracking-tight">Active Train Delays</h3>
               </div>
               <button
                 onClick={() => navigate(ADMIN_ROUTES.SCHEDULES)}
-                className="text-xs font-bold text-[#2259c2] hover:text-[#1748a5] transition-colors cursor-pointer px-2.5 py-1 rounded-lg hover:bg-blue-50"
+                className="text-xs font-bold text-brand hover:text-brand-hover transition-colors cursor-pointer px-2.5 py-1 rounded-lg hover:bg-blue-50"
               >
                 Schedules →
               </button>
@@ -391,7 +391,7 @@ export const DashboardPage: React.FC = () => {
           <div className="mt-4 pt-3 border-t border-slate-100">
             <button
               onClick={() => navigate(ADMIN_ROUTES.SCHEDULES)}
-              className="w-full py-2.5 bg-slate-50 hover:bg-blue-50 hover:text-[#2259c2] text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-colors cursor-pointer"
+              className="w-full py-2.5 bg-slate-50 hover:bg-blue-50 hover:text-brand text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-colors cursor-pointer"
             >
               Manage Dated Schedules
             </button>
@@ -400,14 +400,14 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Analytical Window RANK Reports (06_reports.sql) */}
-      <div className="bg-white rounded-2xl border border-[#e2e8f0] shadow-xs p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-line shadow-xs p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-[#edf4ff] text-[#2259c2]">
-              <TrendingUp className="w-5 h-5 text-[#2259c2]" />
+            <div className="p-2 rounded-xl bg-brand-soft text-brand">
+              <TrendingUp className="w-5 h-5 text-brand" />
             </div>
             <div>
-              <h3 className="font-extrabold text-[#172338] text-base tracking-tight">
+              <h3 className="font-extrabold text-ink text-base tracking-tight">
                 Analytical Window RANK Reports (06_reports.sql)
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -417,7 +417,7 @@ export const DashboardPage: React.FC = () => {
           </div>
           <button
             onClick={() => navigate(ADMIN_ROUTES.REPORTS)}
-            className="text-xs font-bold text-[#2259c2] hover:text-[#1748a5] flex items-center gap-1.5 transition-colors cursor-pointer px-3 py-1.5 rounded-lg hover:bg-blue-50 self-start sm:self-auto"
+            className="text-xs font-bold text-brand hover:text-brand-hover flex items-center gap-1.5 transition-colors cursor-pointer px-3 py-1.5 rounded-lg hover:bg-blue-50 self-start sm:self-auto"
           >
             <span>View All Reports</span>
             <ArrowRight className="w-3.5 h-3.5" />
@@ -438,7 +438,7 @@ export const DashboardPage: React.FC = () => {
               onClick={() => setActiveReportTab(tab.id as RankTabKey)}
               className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
                 activeReportTab === tab.id
-                  ? 'bg-[#2259c2] text-white shadow-xs'
+                  ? 'bg-brand text-white shadow-xs'
                   : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/60'
               }`}
             >
@@ -449,7 +449,7 @@ export const DashboardPage: React.FC = () => {
 
         {/* Tables */}
         {isLoading ? (
-          <div className="py-12 text-center text-xs text-slate-400 font-medium animate-pulse">
+          <div className="py-12 text-center text-xs text-slate-500 font-medium">
             Executing SQL analytical queries from railway_db...
           </div>
         ) : !rankReports ? (
@@ -480,7 +480,7 @@ export const DashboardPage: React.FC = () => {
                     (rankReports.busiestTrains || []).map((row: any, idx: number) => (
                       <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
                         <td className="py-3 px-4">
-                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-[#2259c2]">
+                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-brand">
                             #{row.rank_pos ?? idx + 1}
                           </span>
                         </td>
@@ -533,7 +533,7 @@ export const DashboardPage: React.FC = () => {
                     (rankReports.topRoutes || []).map((row: any, idx: number) => (
                       <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
                         <td className="py-3 px-4">
-                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-[#2259c2]">
+                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-brand">
                             #{row.revenue_rank ?? idx + 1}
                           </span>
                         </td>
@@ -582,7 +582,7 @@ export const DashboardPage: React.FC = () => {
                     (rankReports.stationRanking || []).map((row: any, idx: number) => (
                       <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
                         <td className="py-3 px-4">
-                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-[#2259c2]">
+                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-brand">
                             #{row.station_rank ?? idx + 1}
                           </span>
                         </td>
@@ -631,7 +631,7 @@ export const DashboardPage: React.FC = () => {
                     (rankReports.classRevenue || []).map((row: any, idx: number) => (
                       <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
                         <td className="py-3 px-4">
-                          <span className="font-mono font-bold text-xs px-2.5 py-0.5 rounded bg-blue-50 text-[#2259c2] border border-blue-200/60">
+                          <span className="font-mono font-bold text-xs px-2.5 py-0.5 rounded bg-blue-50 text-brand border border-blue-200/60">
                             {row.class_code}
                           </span>
                         </td>
@@ -680,7 +680,7 @@ export const DashboardPage: React.FC = () => {
                     (rankReports.quotaUtilization || []).map((row: any, idx: number) => (
                       <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
                         <td className="py-3 px-4">
-                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-[#2259c2]">
+                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-brand">
                             #{row.quota_popularity_rank ?? idx + 1}
                           </span>
                         </td>
@@ -712,21 +712,21 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Forensic Audit Log Preview */}
-      <div className="bg-white rounded-2xl border border-[#e2e8f0] shadow-xs p-6">
+      <div className="bg-white rounded-2xl border border-line shadow-xs p-6">
 
         <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-slate-100 text-[#172338]">
+            <div className="p-2 rounded-xl bg-slate-100 text-ink">
               <ShieldAlert className="w-5 h-5 text-slate-700" />
             </div>
             <div>
-              <h3 className="font-extrabold text-[#172338] text-base tracking-tight">Forensic Audit Activity Trail</h3>
+              <h3 className="font-extrabold text-ink text-base tracking-tight">Forensic Audit Activity Trail</h3>
               <p className="text-xs text-slate-400 mt-0.5">Real-time immutable administrative and security event logs</p>
             </div>
           </div>
           <button
             onClick={() => navigate(ADMIN_ROUTES.AUDIT_LOGS)}
-            className="text-xs font-bold text-[#2259c2] hover:text-[#1748a5] flex items-center gap-1.5 transition-colors cursor-pointer px-3 py-1.5 rounded-lg hover:bg-blue-50"
+            className="text-xs font-bold text-brand hover:text-brand-hover flex items-center gap-1.5 transition-colors cursor-pointer px-3 py-1.5 rounded-lg hover:bg-blue-50"
           >
             <span>Full Audit Trail</span>
             <ArrowRight className="w-3.5 h-3.5" />
@@ -759,7 +759,7 @@ export const DashboardPage: React.FC = () => {
                     </span>
                   </td>
                   <td className="py-3 px-4">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-[#2259c2]">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-brand">
                       {log.entityType}
                     </span>
                   </td>

@@ -217,6 +217,7 @@ BEGIN
     );
 
     START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
 
     -- Real demo run Train 146 on 2026-10-20 (Schedule 1254, Class 5 CC):
     -- LADIES quota has 78 seats and all 78 are booked (sold out).
@@ -262,6 +263,7 @@ BEGIN
                 'LADIES sold out failed to return SEAT_NOT_AVAILABLE without consent.');
     END IF;
 
+    SET @as_of_time = NULL;
     ROLLBACK;
 END$$
 
@@ -283,13 +285,14 @@ BEGIN
     );
 
     START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
 
     UPDATE SCHEDULE_CLASS_INVENTORY
     SET available_seats = 0, rac_capacity = 0, rac_count = 0, wl_capacity = 0, wl_count = 0
     WHERE schedule_id = v_sched_id AND class_id = 3;
 
     CALL sp_create_booking(
-        50001, v_sched_id, 3, 1001, 1005, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -301,6 +304,7 @@ BEGIN
         VALUES ('Edge Case: Train 101 on 2026-10-18 (Schedule: 1001) WAITING_LIST_FULL', 'WAITING_LIST_FULL', COALESCE(v_out_err, 'NULL'), 'FAIL', 'Failed to reject with WAITING_LIST_FULL.');
     END IF;
 
+    SET @as_of_time = NULL;
     ROLLBACK;
 END$$
 
@@ -322,13 +326,14 @@ BEGIN
     );
 
     START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
 
     UPDATE SCHEDULE_CLASS_INVENTORY
     SET available_seats = 0, rac_capacity = 5, rac_count = 0, wl_capacity = 5, wl_count = 0
     WHERE schedule_id = v_sched_id AND class_id = 3;
 
     CALL sp_create_booking(
-        50001, v_sched_id, 3, 1001, 1005, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -340,6 +345,7 @@ BEGIN
         VALUES ('Edge Case: Train 101 on 2026-10-18 (Schedule: 1001) RAC-Open Booking', 'RAC', COALESCE(v_out_stat, v_out_err), 'FAIL', 'RAC allocation failed.');
     END IF;
 
+    SET @as_of_time = NULL;
     ROLLBACK;
 END$$
 
@@ -361,13 +367,14 @@ BEGIN
     );
 
     START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
 
     UPDATE SCHEDULE_CLASS_INVENTORY
     SET available_seats = 0, rac_capacity = 10, rac_count = 0
     WHERE schedule_id = v_sched_id AND class_id = 3;
 
     CALL sp_create_booking(
-        50001, v_sched_id, 3, 1001, 1005, 'GENERAL', 0, 1, 0, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, 3, 1145, 1149, 'GENERAL', 0, 1, 0, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -379,6 +386,7 @@ BEGIN
         VALUES ('Edge Case: Train 101 on 2026-10-18 (Schedule: 1001) BERTH_PREFERENCE_NOT_MET', 'BERTH_PREFERENCE_NOT_MET', COALESCE(v_out_err, 'NONE'), 'FAIL', 'Berth condition enforcement failed.');
     END IF;
 
+    SET @as_of_time = NULL;
     ROLLBACK;
 END$$
 
@@ -403,17 +411,18 @@ BEGIN
     DELETE FROM BOOKING WHERE pnr LIKE '88880000%';
 
     START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
 
     UPDATE USER_ACCOUNT SET aadhaar_verified = 0 WHERE user_id = 50002;
 
     WHILE v_cnt < 12 DO
         INSERT INTO BOOKING (pnr, user_id, schedule_id, class_id, from_stop_id, to_stop_id, channel, quota, requested_quota, berth_condition, total_fare, status, created_at)
-        VALUES (CONCAT('88880000', LPAD(v_cnt, 2, '0')), 50002, v_sched_id, 3, 1001, 1005, 'ONLINE', 'GENERAL', 'GENERAL', 0, 100.00, 'CONFIRMED', NOW());
+        VALUES (CONCAT('88880000', LPAD(v_cnt, 2, '0')), 50002, v_sched_id, 3, 1145, 1149, 'ONLINE', 'GENERAL', 'GENERAL', 0, 100.00, 'CONFIRMED', '2026-10-17 10:00:00');
         SET v_cnt = v_cnt + 1;
     END WHILE;
 
     CALL sp_create_booking(
-        50002, v_sched_id, 3, 1001, 1005, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
+        50002, v_sched_id, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -425,6 +434,7 @@ BEGIN
         VALUES ('Edge Case: Train 101 on 2026-10-18 (Schedule: 1001) MONTHLY_LIMIT_EXCEEDED', 'MONTHLY_LIMIT_EXCEEDED', COALESCE(v_out_err, 'NONE'), 'FAIL', 'Monthly limit enforcement failed.');
     END IF;
 
+    SET @as_of_time = NULL;
     ROLLBACK;
     DELETE FROM BOOKING WHERE pnr LIKE '88880000%';
 END$$
@@ -451,7 +461,7 @@ BEGIN
     UPDATE TRAIN_SCHEDULE SET chart_prepared_at = NOW() - INTERVAL 1 HOUR WHERE schedule_id = v_sched_id;
 
     CALL sp_create_booking(
-        50001, v_sched_id, 3, 1001, 1005, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -848,9 +858,10 @@ BEGIN
     );
 
     START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
 
     CALL sp_create_booking(
-        50001, v_sched_id, v_class_id, 1109, 1118, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, v_class_id, 1369, 1375, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -870,6 +881,7 @@ BEGIN
                 'Expected WAITING_LIST_FULL on full run with no inventory changes.');
     END IF;
 
+    SET @as_of_time = NULL;
     ROLLBACK;
 END$$
 
@@ -896,9 +908,10 @@ BEGIN
     );
 
     START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
 
     CALL sp_create_booking(
-        50001, v_sched_id, v_class_id, 1001, 1005, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, v_class_id, 1433, 1445, 'GENERAL', 0, 0, 0, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -924,6 +937,7 @@ BEGIN
                 'Expected RAC allocation on Train 131.');
     END IF;
 
+    SET @as_of_time = NULL;
     ROLLBACK;
 END$$
 
@@ -1078,7 +1092,7 @@ BEGIN
 
     -- Create booking with p_hold_for_payment = 1
     CALL sp_create_booking(
-        50001, v_sched_id, v_class_id, 1001, 1005, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, v_class_id, 1145, 1149, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -1181,7 +1195,7 @@ BEGIN
 
     -- Create booking with p_hold_for_payment = 1
     CALL sp_create_booking(
-        50001, v_sched_id, v_class_id, 1001, 1005, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, v_class_id, 1145, 1149, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -1261,7 +1275,7 @@ BEGIN
 
     -- Create booking with hold
     CALL sp_create_booking(
-        50001, v_sched_id, v_class_id, 1001, 1005, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, v_class_id, 1145, 1149, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -1342,7 +1356,7 @@ BEGIN
     SET @as_of_time = '2026-10-18 10:00:00';
 
     CALL sp_create_booking(
-        50001, v_sched_id, v_class_id, 1001, 1005, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, v_class_id, 1145, 1149, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -1419,6 +1433,7 @@ BEGIN
     );
 
     START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
 
     CALL sp_create_counter_booking(
         1, NULL, v_sched_id, v_class_id, 1145, 1152, 'GENERAL', v_passengers, 'CASH', 0,
@@ -1462,6 +1477,7 @@ BEGIN
                 'Counter booking verification failed.');
     END IF;
 
+    SET @as_of_time = NULL;
     ROLLBACK;
 END$$
 
@@ -1473,7 +1489,7 @@ END$$
 -- 2. Sets BOOKING.status = 'FAILED'
 -- 3. Releases held seats (CANCELLED)
 -- 4. Promotes waiting passengers (RAC to CONFIRMED, WL to RAC)
--- 5. Inserts exactly 1 refund row (PAYMENT_AFTER_EXPIRY, PROCESSED)
+-- 5. Inserts exactly 1 refund row (PAYMENT_AFTER_EXPIRY, PENDING)
 -- 6. Keeps inventory counters equal to real counts (0 mismatches)
 -- -----------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS test_payment_hold_pay_late_promotes_waiting$$
@@ -1535,7 +1551,7 @@ BEGIN
     JOIN PAYMENT p ON r.payment_id = p.payment_id
     WHERE p.gateway_payment_id = 'gateway_late_promo_test_01'
       AND r.reason = 'PAYMENT_AFTER_EXPIRY'
-      AND r.status = 'PROCESSED';
+      AND r.status = 'PENDING';
 
     -- 5. Check inventory counters equal real reservation counts
     SELECT COUNT(*) INTO v_mismatch
@@ -1587,7 +1603,7 @@ END$$
 -- arrives with a different gateway ID:
 -- 1. Booking status stays CONFIRMED (not flipped to FAILED)
 -- 2. Its seat stays reserved (CONFIRMED with valid seat_id)
--- 3. Second payment gets exactly 1 refund row (PAYMENT_AFTER_EXPIRY, PROCESSED)
+-- 3. Second payment gets exactly 1 refund row (PAYMENT_AFTER_EXPIRY, PENDING)
 -- 4. Inventory counters have 0 mismatches
 -- -----------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS test_confirmed_booking_second_payment_refunded$$
@@ -1619,7 +1635,7 @@ BEGIN
 
     -- 1. Create online booking with p_hold_for_payment = 1
     CALL sp_create_booking(
-        50001, v_sched_id, v_class_id, 1001, 1005, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
+        50001, v_sched_id, v_class_id, 1145, 1149, 'GENERAL', 0, 0, 1, v_passengers, 'ONLINE', NULL, 0,
         v_out_pnr, v_out_stat, v_out_fare, v_out_err
     );
 
@@ -1645,7 +1661,7 @@ BEGIN
     JOIN PAYMENT p ON r.payment_id = p.payment_id
     WHERE p.gateway_payment_id = 'gateway_dup_test_diff_02'
       AND r.reason = 'PAYMENT_AFTER_EXPIRY'
-      AND r.status = 'PROCESSED';
+      AND r.status = 'PENDING';
 
     -- 7. Check inventory counters have 0 mismatches
     SELECT COUNT(*) INTO v_mismatch
@@ -1739,6 +1755,1741 @@ END$$
 -- -----------------------------------------------------------------------------
 -- Master Test Runner Procedure
 -- -----------------------------------------------------------------------------
+-- =============================================================================
+-- NEW TESTS (money and booking rules). Each one runs inside a transaction and is rolled back.
+-- Run 1001 = Train 101, 2026-10-18, departs 15:15, class 3 (3A), stops 1145 (seq 1) to 1152 (seq 8).
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- TEST 28: sp_file_tdr happy path + sp_review_tdr approve (delay TDR, full fare line refunded)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_tdr_file_and_approve$$
+CREATE PROCEDURE test_tdr_file_and_approve()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_tdr VARCHAR(32);
+    DECLARE v_tdr_st VARCHAR(32);
+    DECLARE v_ref_id INT;
+    DECLARE v_rev_st VARCHAR(32);
+    DECLARE v_t_status VARCHAR(20);
+    DECLARE v_res_status VARCHAR(20);
+    DECLARE v_ref_cnt INT DEFAULT 0;
+    DECLARE v_ref_amt DECIMAL(10,2) DEFAULT 0;
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Tdr Happy User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_tdr_ok_01', 0, v_conf, v_pay);
+    UPDATE TRAIN_SCHEDULE SET delay_minutes = 200 WHERE schedule_id = 1001;
+
+    CALL sp_file_tdr(v_pnr, 1, 50001, 'TRAIN_DELAYED_OVER_3_HOURS', NULL, 'test delay claim', 0, v_tdr, v_tdr_st);
+    CALL sp_review_tdr(v_tdr, 1, 'APPROVED', v_fare - 0.45, 'approved in test', 0, v_ref_id, v_rev_st);
+
+    SELECT status INTO v_t_status FROM TDR_FILING WHERE tdr_ref_no = v_tdr;
+    SELECT status INTO v_res_status FROM RESERVATION WHERE pnr = v_pnr AND passenger_no = 1;
+    SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_ref_cnt, v_ref_amt
+    FROM REFUND WHERE tdr_ref_no = v_tdr AND reason = 'TDR_APPROVED';
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('TDR: File + Admin Approve (Happy Path)',
+            'FILED, APPROVED, REFUND_PROCESSED, 1 refund of fare line, seat released',
+            CONCAT('File: ', COALESCE(v_tdr_st, 'NULL'), ', Review: ', COALESCE(v_rev_st, 'NULL'), ', TDR: ', COALESCE(v_t_status, 'NULL'),
+                   ', Refunds: ', v_ref_cnt, ' = ', v_ref_amt, ', Res: ', COALESCE(v_res_status, 'NULL')),
+            IF(v_tdr_st = 'FILED' AND v_rev_st = 'APPROVED' AND v_t_status = 'REFUND_PROCESSED'
+               AND v_ref_cnt = 1 AND v_ref_amt = v_fare - 0.45 AND v_res_status = 'CANCELLED', 'PASS', 'FAIL'),
+            'A delay TDR was filed, approved by admin 1, refunded once (fare minus insurance) and the seat was released.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 29: TDR double filing blocked after REFUND_PROCESSED (and passenger_no NULL refused)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_tdr_double_filing_blocked$$
+CREATE PROCEDURE test_tdr_double_filing_blocked()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_tdr VARCHAR(32);
+    DECLARE v_tdr_st VARCHAR(32);
+    DECLARE v_tdr2 VARCHAR(32);
+    DECLARE v_tdr2_st VARCHAR(32);
+    DECLARE v_tdr3 VARCHAR(32);
+    DECLARE v_tdr3_st VARCHAR(32);
+    DECLARE v_ref_id INT;
+    DECLARE v_rev_st VARCHAR(32);
+    DECLARE v_t_status VARCHAR(20);
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Tdr Twice User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_tdr_twice_01', 0, v_conf, v_pay);
+    UPDATE TRAIN_SCHEDULE SET delay_minutes = 200 WHERE schedule_id = 1001;
+
+    CALL sp_file_tdr(v_pnr, 1, 50001, 'TRAIN_DELAYED_OVER_3_HOURS', NULL, 'first claim', 0, v_tdr, v_tdr_st);
+    CALL sp_review_tdr(v_tdr, 1, 'APPROVED', v_fare - 0.45, 'approved', 0, v_ref_id, v_rev_st);
+    SELECT status INTO v_t_status FROM TDR_FILING WHERE tdr_ref_no = v_tdr;
+
+    -- Same passenger files again: must be refused because the first TDR is REFUND_PROCESSED
+    CALL sp_file_tdr(v_pnr, 1, 50001, 'TRAIN_DELAYED_OVER_3_HOURS', NULL, 'second claim', 0, v_tdr2, v_tdr2_st);
+    -- A missing passenger number is refused
+    CALL sp_file_tdr(v_pnr, NULL, 50001, 'TRAIN_DELAYED_OVER_3_HOURS', NULL, 'no passenger', 0, v_tdr3, v_tdr3_st);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('TDR: Second Filing Blocked After REFUND_PROCESSED',
+            'First TDR REFUND_PROCESSED, second DUPLICATE_TDR, no passenger PASSENGER_REQUIRED',
+            CONCAT('First: ', COALESCE(v_t_status, 'NULL'), ', Second: ', COALESCE(v_tdr2_st, 'NULL'), ', NullPax: ', COALESCE(v_tdr3_st, 'NULL')),
+            IF(v_t_status = 'REFUND_PROCESSED' AND v_tdr2_st = 'DUPLICATE_TDR' AND v_tdr3_st = 'PASSENGER_REQUIRED', 'PASS', 'FAIL'),
+            'A refunded passenger cannot file a new TDR, so the same fare cannot be refunded twice through TDR.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 30: Refund cap - a second refund that would be more than the payment is refused
+-- (procedure check REFUND_EXCEEDS_PAYMENT, and the trg_refund_cap backstop)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_refund_cap_exceeds_payment$$
+CREATE PROCEDURE test_refund_cap_exceeds_payment()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_new_ref INT;
+    DECLARE v_chg DECIMAL(10,2);
+    DECLARE v_ref DECIMAL(10,2);
+    DECLARE v_cancel_st VARCHAR(32);
+    DECLARE v_res_status VARCHAR(20);
+    DECLARE v_trigger_fired TINYINT DEFAULT 0;
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Refund Cap User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_refund_cap_01', 0, v_conf, v_pay);
+
+    -- A first refund already took all but 1 rupee of the payment
+    SELECT COALESCE(MAX(refund_id), 0) + 1 INTO v_new_ref FROM REFUND;
+    INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+    VALUES (v_new_ref, NULL, NULL, v_pay, v_fare - 1.00, 'TRAIN_CANCELLED', 'PROCESSED');
+
+    -- A normal cancel now would refund much more than is left: refused, nothing changes
+    CALL sp_cancel_passenger_ticket(v_pnr, NULL, 'cap test', 0, v_chg, v_ref, v_cancel_st);
+    SELECT status INTO v_res_status FROM RESERVATION WHERE pnr = v_pnr AND passenger_no = 1;
+
+    -- Backstop: writing a refund row that goes over the payment is blocked by the trigger
+    cap_trigger: BEGIN
+        DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET v_trigger_fired = 1;
+        INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+        VALUES (v_new_ref + 1, NULL, NULL, v_pay, 10.00, 'TRAIN_CANCELLED', 'PROCESSED');
+    END cap_trigger;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Refund Cap: Second Refund More Than Payment Refused',
+            'Cancel returns REFUND_EXCEEDS_PAYMENT, seat kept, trigger blocks the insert',
+            CONCAT('Cancel: ', COALESCE(v_cancel_st, 'NULL'), ', Res: ', COALESCE(v_res_status, 'NULL'), ', Trigger: ', v_trigger_fired),
+            IF(v_cancel_st = 'REFUND_EXCEEDS_PAYMENT' AND v_res_status = 'CONFIRMED' AND v_trigger_fired = 1, 'PASS', 'FAIL'),
+            'Both layers of the refund cap work: the procedure check and the BEFORE INSERT trigger.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 31: A seat that already got a TDR refund cannot be cancelled the normal way
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_cancel_after_tdr_refund_blocked$$
+CREATE PROCEDURE test_cancel_after_tdr_refund_blocked()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_chg DECIMAL(10,2);
+    DECLARE v_ref DECIMAL(10,2);
+    DECLARE v_cancel_st VARCHAR(32);
+    DECLARE v_res_status VARCHAR(20);
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Tdr Then Cancel', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_tdr_cancel_01', 0, v_conf, v_pay);
+
+    -- This passenger already got a TDR refund (a non-delay TDR keeps the seat)
+    INSERT INTO TDR_FILING (tdr_ref_no, pnr, passenger_no, reason, filed_at, status, evidence_ref, refund_amount, reviewed_by, reviewed_at, remarks)
+    VALUES ('TDR-TEST-CANCEL-1', v_pnr, 1, 'COACH_NOT_ATTACHED', '2026-10-17 10:03:00', 'REFUND_PROCESSED', 'CERT-1', 500.00, 1, '2026-10-17 10:04:00', 'test');
+
+    CALL sp_cancel_passenger_ticket(v_pnr, 1, 'cancel after tdr', 0, v_chg, v_ref, v_cancel_st);
+    SELECT status INTO v_res_status FROM RESERVATION WHERE pnr = v_pnr AND passenger_no = 1;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Refund Cap: Cancel After TDR Refund Refused',
+            'REFUND_EXCEEDS_PAYMENT and seat unchanged',
+            CONCAT('Cancel: ', COALESCE(v_cancel_st, 'NULL'), ', Res: ', COALESCE(v_res_status, 'NULL'), ', Refund: ', v_ref),
+            IF(v_cancel_st = 'REFUND_EXCEEDS_PAYMENT' AND v_res_status = 'CONFIRMED' AND v_ref = 0, 'PASS', 'FAIL'),
+            'A seat with a REFUND_PROCESSED TDR is not refunded a second time by a normal cancellation.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 32: Booking for a train that has already left is refused (JOURNEY_PAST),
+-- and a CANCELLED run is refused (TRAIN_NOT_RUNNING)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_booking_journey_past$$
+CREATE PROCEDURE test_booking_journey_past()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err_past VARCHAR(32);
+    DECLARE v_err_cancelled VARCHAR(32);
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Late Traveller', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    -- The train leaves stop 1145 at 15:15 on 2026-10-18. At 16:00 it is gone.
+    SET @as_of_time = '2026-10-18 16:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_past);
+
+    SET @as_of_time = '2026-10-17 10:00:00';
+    UPDATE TRAIN_SCHEDULE SET status = 'CANCELLED' WHERE schedule_id = 1001;
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_cancelled);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Booking: Past Journey And Cancelled Run Refused',
+            'JOURNEY_PAST and TRAIN_NOT_RUNNING',
+            CONCAT('Past: ', COALESCE(v_err_past, 'NONE'), ', Cancelled: ', COALESCE(v_err_cancelled, 'NONE')),
+            IF(v_err_past = 'JOURNEY_PAST' AND v_err_cancelled = 'TRAIN_NOT_RUNNING', 'PASS', 'FAIL'),
+            'No booking after the boarding-station departure time and none on a cancelled run.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 33: Booking too far ahead is refused (OUTSIDE_BOOKING_WINDOW)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_booking_outside_window$$
+CREATE PROCEDURE test_booking_outside_window()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err_far VARCHAR(32);
+    DECLARE v_err_edge VARCHAR(32);
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Early Booker', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    -- 13 days before the journey date (window is 7 days)
+    SET @as_of_time = '2026-10-05 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_far);
+
+    -- Exactly 7 days before is still inside the window
+    SET @as_of_time = '2026-10-11 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_edge);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Booking: Outside Booking Window Refused',
+            '13 days ahead OUTSIDE_BOOKING_WINDOW, 7 days ahead allowed',
+            CONCAT('13d: ', COALESCE(v_err_far, 'NONE'), ', 7d: ', COALESCE(v_err_edge, 'NONE')),
+            IF(v_err_far = 'OUTSIDE_BOOKING_WINDOW' AND v_err_edge IS NULL, 'PASS', 'FAIL'),
+            'BOOKING_WINDOW_DAYS (7) is enforced on the boarding date.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 34: Stops that do not belong to the train, or are in the wrong order, are refused
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_booking_invalid_stops$$
+CREATE PROCEDURE test_booking_invalid_stops()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err_other VARCHAR(32);
+    DECLARE v_err_order VARCHAR(32);
+    DECLARE v_err_same VARCHAR(32);
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Wrong Stops', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    -- Stops 1001 and 1005 belong to train 139, not train 101
+    CALL sp_create_booking(50001, 1001, 3, 1001, 1005, 'GENERAL', 0, 0, 0, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_other);
+    -- Right train, but the from stop is after the to stop
+    CALL sp_create_booking(50001, 1001, 3, 1149, 1145, 'GENERAL', 0, 0, 0, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_order);
+    -- Same stop twice
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1145, 'GENERAL', 0, 0, 0, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_same);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Booking: Invalid Stops Refused',
+            'Other train stops, reversed stops and same stop all INVALID_STOPS',
+            CONCAT('Other: ', COALESCE(v_err_other, 'NONE'), ', Reversed: ', COALESCE(v_err_order, 'NONE'), ', Same: ', COALESCE(v_err_same, 'NONE')),
+            IF(v_err_other = 'INVALID_STOPS' AND v_err_order = 'INVALID_STOPS' AND v_err_same = 'INVALID_STOPS', 'PASS', 'FAIL'),
+            'From and to stops must belong to the run''s train and the from stop must come first.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 35: LADIES quota with a male passenger aged 12 or more is refused
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_ladies_quota_male_refused$$
+CREATE PROCEDURE test_ladies_quota_male_refused()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err_male VARCHAR(32);
+    DECLARE v_err_child VARCHAR(32);
+    DECLARE v_pass_male JSON;
+    DECLARE v_pass_child JSON;
+
+    SET v_pass_male = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Male Traveller', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+    -- A woman with a boy under 12 is allowed (BR-Q2)
+    SET v_pass_child = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Mother', 'age', 32, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH'),
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Small Boy', 'age', 8, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'LADIES', 1, 0, 0, v_pass_male, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_male);
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'LADIES', 1, 0, 0, v_pass_child, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_child);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Eligibility: LADIES Quota With Male Refused',
+            'Male age 30 QUOTA_NOT_ELIGIBLE, woman with boy under 12 accepted',
+            CONCAT('Male: ', COALESCE(v_err_male, 'NONE'), ', Mother+Boy: ', COALESCE(v_err_child, 'NONE')),
+            IF(v_err_male = 'QUOTA_NOT_ELIGIBLE' AND v_err_child IS NULL, 'PASS', 'FAIL'),
+            'Even with fallback consent a male passenger is not allowed to use the LADIES quota.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 36: SENIOR_CITIZEN quota under the age limit is refused (men 60+, women 45+)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_senior_quota_underage_refused$$
+CREATE PROCEDURE test_senior_quota_underage_refused()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err_man VARCHAR(32);
+    DECLARE v_err_woman VARCHAR(32);
+    DECLARE v_err_ok VARCHAR(32);
+    DECLARE v_man JSON;
+    DECLARE v_woman JSON;
+    DECLARE v_ok JSON;
+
+    SET v_man = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Man Fifty Nine', 'age', 59, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'LOWER')
+    );
+    SET v_woman = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Woman Forty Four', 'age', 44, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'LOWER')
+    );
+    SET v_ok = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Woman Forty Five', 'age', 45, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'LOWER')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'SENIOR_CITIZEN', 1, 0, 0, v_man, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_man);
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'SENIOR_CITIZEN', 1, 0, 0, v_woman, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_woman);
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'SENIOR_CITIZEN', 1, 0, 0, v_ok, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_ok);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Eligibility: SENIOR_CITIZEN Quota Under Age Refused',
+            'Man 59 and woman 44 QUOTA_NOT_ELIGIBLE, woman 45 accepted',
+            CONCAT('Man59: ', COALESCE(v_err_man, 'NONE'), ', Woman44: ', COALESCE(v_err_woman, 'NONE'), ', Woman45: ', COALESCE(v_err_ok, 'NONE')),
+            IF(v_err_man = 'QUOTA_NOT_ELIGIBLE' AND v_err_woman = 'QUOTA_NOT_ELIGIBLE' AND v_err_ok IS NULL, 'PASS', 'FAIL'),
+            'BR-Q4: men 60 or more, women 45 or more.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 37: DIVYAANG quota without proof refused; a concession without proof refused
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_divyaang_without_proof_refused$$
+CREATE PROCEDURE test_divyaang_without_proof_refused()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err_quota VARCHAR(32);
+    DECLARE v_err_conc VARCHAR(32);
+    DECLARE v_err_ok VARCHAR(32);
+    DECLARE v_no_proof JSON;
+    DECLARE v_conc_no_proof JSON;
+    DECLARE v_with_proof JSON;
+
+    SET v_no_proof = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'No Proof', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'LOWER')
+    );
+    SET v_conc_no_proof = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Concession No Proof', 'age', 30, 'gender', 'MALE', 'concession_type', 'DIVYAANG', 'berth_preference', 'LOWER')
+    );
+    SET v_with_proof = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'With Proof', 'age', 30, 'gender', 'MALE', 'concession_type', 'DIVYAANG',
+                    'concession_proof_type', 'UDID', 'concession_proof_ref', 'UDID-TEST-0001', 'berth_preference', 'LOWER')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'DIVYAANG', 1, 0, 0, v_no_proof, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_quota);
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_conc_no_proof, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_conc);
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_with_proof, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err_ok);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Eligibility: DIVYAANG Without Proof Refused',
+            'DIVYAANG quota no proof QUOTA_NOT_ELIGIBLE, concession no proof CONCESSION_PROOF_REQUIRED, with proof accepted',
+            CONCAT('Quota: ', COALESCE(v_err_quota, 'NONE'), ', Concession: ', COALESCE(v_err_conc, 'NONE'), ', WithProof: ', COALESCE(v_err_ok, 'NONE')),
+            IF(v_err_quota = 'QUOTA_NOT_ELIGIBLE' AND v_err_conc = 'CONCESSION_PROOF_REQUIRED' AND v_err_ok IS NULL, 'PASS', 'FAIL'),
+            'BR-Q5 and BR-C6: disability proof (type and reference) is needed.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 38: A non-delay TDR cannot be filed before the train has run
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_tdr_non_delay_before_run_refused$$
+CREATE PROCEDURE test_tdr_non_delay_before_run_refused()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_tdr VARCHAR(32);
+    DECLARE v_tdr_st VARCHAR(32);
+    DECLARE v_open_count INT DEFAULT 0;
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Too Early Claim', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_tdr_early_01', 0, v_conf, v_pay);
+
+    -- The train has not left yet (15:15 on 2026-10-18): nothing has happened to claim for
+    CALL sp_file_tdr(v_pnr, 1, 50001, 'COACH_NOT_ATTACHED', 'CERT-EARLY-1', 'too early', 0, v_tdr, v_tdr_st);
+    SELECT COUNT(*) INTO v_open_count FROM TDR_FILING WHERE pnr = v_pnr;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('TDR: Non-Delay Reason Before Train Runs Refused',
+            'NOT_ELIGIBLE and no TDR row written',
+            CONCAT('Status: ', COALESCE(v_tdr_st, 'NULL'), ', Rows: ', v_open_count),
+            IF(v_tdr_st = 'NOT_ELIGIBLE' AND v_open_count = 0, 'PASS', 'FAIL'),
+            'COACH_NOT_ATTACHED needs the train to have left first.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 39: sp_prepare_chart no longer hides errors: the error reaches the caller
+-- The error is forced with a snapshot row at the largest INT id, so the next snapshot id is out of range.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_prepare_chart_error_surfaces$$
+CREATE PROCEDURE test_prepare_chart_error_surfaces()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_station_id INT;
+    DECLARE v_snap_cnt INT DEFAULT -1;
+    DECLARE v_chart_error TINYINT DEFAULT 0;
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Chart Error User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_chart_err_01', 0, v_conf, v_pay);
+
+    -- Break the data inside this transaction: a snapshot row with the largest INT id, so the chart's
+    -- next snapshot id (MAX + 1) does not fit in the column
+    SELECT station_id INTO v_station_id FROM ROUTE_STOP WHERE stop_id = 1145;
+    INSERT INTO CHART_SNAPSHOT (snapshot_id, schedule_id, pnr, passenger_no, coach_no, seat_no, berth_type, status,
+                                from_station_id, to_station_id, concession_flag, generated_at)
+    VALUES (2147483647, 1001, v_pnr, 1, 'X1', 1, 'LOWER', 'CONFIRMED', v_station_id, v_station_id, 0, '2026-10-17 10:06:00');
+
+    chart_call: BEGIN
+        DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_chart_error = 1;
+        CALL sp_prepare_chart(1001, 0, v_snap_cnt);
+    END chart_call;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Chart: sp_prepare_chart Error Reaches Caller',
+            'Error is raised to the caller (not swallowed)',
+            CONCAT('Error raised: ', v_chart_error, ', Snapshot count: ', COALESCE(v_snap_cnt, -1)),
+            IF(v_chart_error = 1, 'PASS', 'FAIL'),
+            'sp_prepare_chart now resignals the error so the backend can see that the chart failed.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+
+    -- The AUTO_INCREMENT counter does NOT roll back. The snapshot parked at the largest INT id above would leave
+    -- the counter stuck at the maximum and break every later chart. Put the counter back to MAX + 1.
+    SET @snap_next = (SELECT COALESCE(MAX(snapshot_id), 0) + 1 FROM CHART_SNAPSHOT);
+    SET @snap_sql = CONCAT('ALTER TABLE CHART_SNAPSHOT AUTO_INCREMENT = ', @snap_next);
+    PREPARE snap_stmt FROM @snap_sql;
+    EXECUTE snap_stmt;
+    DEALLOCATE PREPARE snap_stmt;
+END$$
+
+-- =============================================================================
+-- REFUND LIFE TESTS (PENDING -> PROCESSED / FAILED). SQL never calls a gateway,
+-- so every refund the procedures create is PENDING. Same setup as the money tests:
+-- run 1001 (Train 101), class 3, stops 1145 to 1149, user 50001, clock pinned.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- TEST 40: A refund written by a normal cancel is PENDING, with no attempts yet
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_refund_created_pending$$
+CREATE PROCEDURE test_refund_created_pending()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_chg DECIMAL(10,2);
+    DECLARE v_ref DECIMAL(10,2);
+    DECLARE v_cancel_st VARCHAR(32);
+    DECLARE v_rf_status VARCHAR(20);
+    DECLARE v_rf_attempts INT;
+    DECLARE v_rf_cnt INT DEFAULT 0;
+    DECLARE v_rf_amount DECIMAL(10,2);
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Pending Refund User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_pending_01', 0, v_conf, v_pay);
+    CALL sp_cancel_passenger_ticket(v_pnr, NULL, 'pending test', 0, v_chg, v_ref, v_cancel_st);
+
+    SELECT COUNT(*), MAX(r.status), MAX(r.attempts), COALESCE(SUM(r.amount), 0)
+    INTO v_rf_cnt, v_rf_status, v_rf_attempts, v_rf_amount
+    FROM REFUND r WHERE r.payment_id = v_pay AND r.reason = 'CANCELLATION';
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Refund Life: Cancel Writes A PENDING Refund',
+            'CANCELLED, 1 refund row, PENDING, attempts 0, same amount as the cancel output',
+            CONCAT('Cancel: ', COALESCE(v_cancel_st, 'NULL'), ', Rows: ', v_rf_cnt, ', Status: ', COALESCE(v_rf_status, 'NULL'),
+                   ', Attempts: ', COALESCE(v_rf_attempts, -1), ', Amount: ', v_rf_amount, ' vs ', v_ref),
+            IF(v_cancel_st = 'CANCELLED' AND v_rf_cnt = 1 AND v_rf_status = 'PENDING' AND v_rf_attempts = 0 AND v_rf_amount = v_ref AND v_ref > 0, 'PASS', 'FAIL'),
+            'SQL records the refund as owed (PENDING). Only the gateway step can make it PROCESSED.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 41: sp_set_refund_result allows only PENDING/FAILED to PROCESSED/FAILED
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_refund_result_transitions$$
+CREATE PROCEDURE test_refund_result_transitions()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_rf INT;
+    DECLARE v_s1 VARCHAR(32);
+    DECLARE v_s2 VARCHAR(32);
+    DECLARE v_s3 VARCHAR(32);
+    DECLARE v_s4 VARCHAR(32);
+    DECLARE v_s5 VARCHAR(32);
+    DECLARE v_s6 VARCHAR(32);
+    DECLARE v_s7 VARCHAR(32);
+    DECLARE v_s8 VARCHAR(32);
+    DECLARE v_att INT;
+    DECLARE v_gw VARCHAR(40);
+    DECLARE v_fail_reason VARCHAR(255);
+    DECLARE v_proc_at DATETIME;
+    DECLARE v_final VARCHAR(20);
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Transition User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_transition_01', 0, v_conf, v_pay);
+
+    -- A fresh PENDING refund row (small amount, well inside the payment)
+    SELECT COALESCE(MAX(refund_id), 0) + 1 INTO v_rf FROM REFUND;
+    INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+    VALUES (v_rf, NULL, NULL, v_pay, 10.00, 'TRAIN_CANCELLED', 'PENDING');
+
+    CALL sp_set_refund_result(v_rf, 'PENDING', NULL, NULL, v_s1);               -- PENDING -> PENDING: refused
+    CALL sp_set_refund_result(v_rf, 'BOGUS', NULL, NULL, v_s2);                 -- unknown status: refused
+    CALL sp_set_refund_result(v_rf, 'FAILED', NULL, 'gateway timeout', v_s3);   -- PENDING -> FAILED: ok
+    CALL sp_set_refund_result(v_rf, 'FAILED', NULL, 'still down', v_s4);        -- FAILED -> FAILED: ok
+    CALL sp_set_refund_result(v_rf, 'PROCESSED', 'rfnd_test_000001', NULL, v_s5); -- FAILED -> PROCESSED: ok
+    SELECT attempts, gateway_refund_id, failure_reason, processed_at, status
+    INTO v_att, v_gw, v_fail_reason, v_proc_at, v_final FROM REFUND WHERE refund_id = v_rf;
+    CALL sp_set_refund_result(v_rf, 'FAILED', NULL, 'late', v_s6);              -- PROCESSED -> FAILED: refused
+    CALL sp_set_refund_result(v_rf, 'PROCESSED', 'rfnd_test_000002', NULL, v_s7); -- PROCESSED -> PROCESSED: refused
+    CALL sp_set_refund_result(999999999, 'PROCESSED', NULL, NULL, v_s8);        -- no such refund
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Refund Life: sp_set_refund_result Transitions',
+            'Allowed: PENDING->FAILED, FAILED->FAILED, FAILED->PROCESSED. Refused: PENDING->PENDING, bad status, PROCESSED->anything',
+            CONCAT('Refused: ', v_s1 = 'INVALID_TRANSITION', v_s2 = 'INVALID_TRANSITION', v_s6 = 'INVALID_TRANSITION', v_s7 = 'INVALID_TRANSITION',
+                   ' NotFound: ', v_s8, ' Allowed: ', v_s3, '/', v_s4, '/', v_s5, ' Attempts: ', COALESCE(v_att, -1), ' Final: ', COALESCE(v_final, 'NULL')),
+            IF(v_s1 = 'INVALID_TRANSITION' AND v_s2 = 'INVALID_TRANSITION' AND v_s3 = 'FAILED' AND v_s4 = 'FAILED' AND v_s5 = 'PROCESSED'
+               AND v_s6 = 'INVALID_TRANSITION' AND v_s7 = 'INVALID_TRANSITION' AND v_s8 = 'NOT_FOUND'
+               AND v_att = 3 AND v_gw = 'rfnd_test_000001' AND v_fail_reason IS NULL AND v_proc_at IS NOT NULL AND v_final = 'PROCESSED', 'PASS', 'FAIL'),
+            'Every accepted call counts one attempt; processed_at and gateway_refund_id are set on PROCESSED; a PROCESSED refund never changes again.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 42: A FAILED refund still counts toward the cap (it is still owed)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_failed_refund_counts_toward_cap$$
+CREATE PROCEDURE test_failed_refund_counts_toward_cap()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_rf INT;
+    DECLARE v_room DECIMAL(10,2);
+    DECLARE v_blocked TINYINT DEFAULT 0;
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Failed Cap User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_failed_cap_01', 0, v_conf, v_pay);
+
+    SELECT COALESCE(MAX(refund_id), 0) + 1 INTO v_rf FROM REFUND;
+    INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status, failure_reason, attempts)
+    VALUES (v_rf, NULL, NULL, v_pay, v_fare - 1.00, 'TRAIN_CANCELLED', 'FAILED', 'gateway down', 1);
+
+    SET v_room = fn_refund_room(v_pay);
+
+    cap_failed: BEGIN
+        DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET v_blocked = 1;
+        INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+        VALUES (v_rf + 1, NULL, NULL, v_pay, 10.00, 'TRAIN_CANCELLED', 'PENDING');
+    END cap_failed;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Refund Cap: FAILED Refund Still Counts',
+            'Room left is 1.00 and a 10.00 refund is blocked',
+            CONCAT('Room: ', v_room, ', Blocked: ', v_blocked),
+            IF(v_room = 1.00 AND v_blocked = 1, 'PASS', 'FAIL'),
+            'A FAILED refund will be retried, so the passenger is still owed that money and the payment cannot be refunded twice.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 43: Two PENDING refunds cannot together exceed the payment
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_two_pending_refunds_cap$$
+CREATE PROCEDURE test_two_pending_refunds_cap()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_rf INT;
+    DECLARE v_over_blocked TINYINT DEFAULT 0;
+    DECLARE v_exact_blocked TINYINT DEFAULT 0;
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Two Pending User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_two_pending_01', 0, v_conf, v_pay);
+
+    SELECT COALESCE(MAX(refund_id), 0) + 1 INTO v_rf FROM REFUND;
+    INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+    VALUES (v_rf, NULL, NULL, v_pay, v_fare - 100.00, 'TRAIN_CANCELLED', 'PENDING');
+
+    -- 150 more would be 50 over the payment: blocked
+    over_try: BEGIN
+        DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET v_over_blocked = 1;
+        INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+        VALUES (v_rf + 1, NULL, NULL, v_pay, 150.00, 'TRAIN_CANCELLED', 'PENDING');
+    END over_try;
+
+    -- Exactly the 100.00 that is left: allowed
+    exact_try: BEGIN
+        DECLARE CONTINUE HANDLER FOR SQLSTATE '45000' SET v_exact_blocked = 1;
+        INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+        VALUES (v_rf + 2, NULL, NULL, v_pay, 100.00, 'TRAIN_CANCELLED', 'PENDING');
+    END exact_try;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Refund Cap: Two PENDING Refunds Cannot Exceed Payment',
+            'Over by 50 blocked, exactly the rest allowed',
+            CONCAT('Over blocked: ', v_over_blocked, ', Exact blocked: ', v_exact_blocked, ', Room now: ', fn_refund_room(v_pay)),
+            IF(v_over_blocked = 1 AND v_exact_blocked = 0 AND fn_refund_room(v_pay) = 0.00, 'PASS', 'FAIL'),
+            'PENDING refunds are counted, so two refunds waiting for the gateway can never add up to more than was paid.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 44: The payout view counts PROCESSED only as paid out; PENDING and FAILED are separate
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_refund_view_processed_only$$
+CREATE PROCEDURE test_refund_view_processed_only()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_conf VARCHAR(20);
+    DECLARE v_pay INT;
+    DECLARE v_rf INT;
+    DECLARE v_b_proc DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_b_pend DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_b_fail DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_a_proc DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_a_pend DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_a_fail DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'View User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SET @as_of_time = '2026-10-17 10:05:00';
+    CALL sp_confirm_payment(v_pnr, v_fare, 'UPI', 'gw_test_view_01', 0, v_conf, v_pay);
+
+    SELECT COALESCE(SUM(processed_amount), 0), COALESCE(SUM(pending_amount), 0), COALESCE(SUM(failed_amount), 0)
+    INTO v_b_proc, v_b_pend, v_b_fail FROM vw_refund_payout_summary WHERE reason = 'TRAIN_CANCELLED';
+
+    SELECT COALESCE(MAX(refund_id), 0) + 1 INTO v_rf FROM REFUND;
+    INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+    VALUES (v_rf, NULL, NULL, v_pay, 100.00, 'TRAIN_CANCELLED', 'PROCESSED'),
+           (v_rf + 1, NULL, NULL, v_pay, 200.00, 'TRAIN_CANCELLED', 'PENDING'),
+           (v_rf + 2, NULL, NULL, v_pay, 300.00, 'TRAIN_CANCELLED', 'FAILED');
+
+    SELECT COALESCE(SUM(processed_amount), 0), COALESCE(SUM(pending_amount), 0), COALESCE(SUM(failed_amount), 0)
+    INTO v_a_proc, v_a_pend, v_a_fail FROM vw_refund_payout_summary WHERE reason = 'TRAIN_CANCELLED';
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Refund Life: Payout View Counts PROCESSED Only',
+            'Paid out +100, pending +200, failed +300',
+            CONCAT('Paid +', v_a_proc - v_b_proc, ', Pending +', v_a_pend - v_b_pend, ', Failed +', v_a_fail - v_b_fail),
+            IF(v_a_proc - v_b_proc = 100.00 AND v_a_pend - v_b_pend = 200.00 AND v_a_fail - v_b_fail = 300.00, 'PASS', 'FAIL'),
+            'Money paid out is the PROCESSED column only; PENDING and FAILED are shown separately.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- =============================================================================
+-- PAYMENT_ORDER TESTS (MySQL is the source of truth for Razorpay orders)
+-- Same setup as the money tests: run 1001 (Train 101), class 3, stops 1145 to 1149, user 50001, clock pinned.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- TEST 45: sp_set_payment_order_result transitions
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_payment_order_transitions$$
+CREATE PROCEDURE test_payment_order_transitions()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_s1 VARCHAR(32);
+    DECLARE v_s2 VARCHAR(32);
+    DECLARE v_s3 VARCHAR(32);
+    DECLARE v_s4 VARCHAR(32);
+    DECLARE v_s5 VARCHAR(32);
+    DECLARE v_s6 VARCHAR(32);
+    DECLARE v_s7 VARCHAR(32);
+    DECLARE v_s8 VARCHAR(32);
+    DECLARE v_s9 VARCHAR(32);
+    DECLARE v_paid_gw VARCHAR(40);
+    DECLARE v_paid_at DATETIME;
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Order Transition User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+
+    INSERT INTO PAYMENT_ORDER (order_id, pnr, amount_paise, status, created_at) VALUES
+        ('order_t_paid', v_pnr, ROUND(v_fare * 100), 'CREATED', '2026-10-17 10:00:00'),
+        ('order_t_late', v_pnr, ROUND(v_fare * 100), 'CREATED', '2026-10-17 10:00:00'),
+        ('order_t_failed', v_pnr, ROUND(v_fare * 100), 'CREATED', '2026-10-17 10:00:00'),
+        ('order_t_plain', v_pnr, ROUND(v_fare * 100), 'CREATED', '2026-10-17 10:00:00');
+
+    CALL sp_set_payment_order_result('order_t_paid', 'PAID', 'pay_test_order_01', v_s1);   -- CREATED -> PAID: ok
+    SELECT gateway_payment_id, paid_at INTO v_paid_gw, v_paid_at FROM PAYMENT_ORDER WHERE order_id = 'order_t_paid';
+    CALL sp_set_payment_order_result('order_t_paid', 'FAILED', NULL, v_s2);                -- PAID -> FAILED: refused
+    CALL sp_set_payment_order_result('order_t_paid', 'PAID', NULL, v_s3);                  -- PAID -> PAID: refused
+    CALL sp_set_payment_order_result('order_t_late', 'LATE_PAID', 'pay_test_order_02', v_s4); -- CREATED -> LATE_PAID: ok
+    CALL sp_set_payment_order_result('order_t_failed', 'FAILED', NULL, v_s5);              -- CREATED -> FAILED: ok
+    CALL sp_set_payment_order_result('order_t_failed', 'PAID', 'pay_test_order_03', v_s6); -- FAILED -> PAID: refused
+    CALL sp_set_payment_order_result('order_t_plain', 'CREATED', NULL, v_s7);              -- CREATED -> CREATED: refused
+    CALL sp_set_payment_order_result('order_t_plain', 'BOGUS', NULL, v_s8);                -- unknown status: refused
+    CALL sp_set_payment_order_result('order_nope', 'PAID', NULL, v_s9);                    -- no such order
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Payment Order: sp_set_payment_order_result Transitions',
+            'Allowed: CREATED->PAID, LATE_PAID, FAILED. Refused: PAID->FAILED, PAID->PAID, FAILED->PAID, CREATED->CREATED, bad status. Unknown id NOT_FOUND',
+            CONCAT(v_s1, ',', v_s2, ',', v_s3, ',', v_s4, ',', v_s5, ',', v_s6, ',', v_s7, ',', v_s8, ',', v_s9),
+            IF(v_s1 = 'PAID' AND v_s2 = 'INVALID_TRANSITION' AND v_s3 = 'INVALID_TRANSITION' AND v_s4 = 'LATE_PAID' AND v_s5 = 'FAILED'
+               AND v_s6 = 'INVALID_TRANSITION' AND v_s7 = 'INVALID_TRANSITION' AND v_s8 = 'INVALID_TRANSITION' AND v_s9 = 'NOT_FOUND'
+               AND v_paid_gw = 'pay_test_order_01' AND v_paid_at IS NOT NULL, 'PASS', 'FAIL'),
+            'An order leaves CREATED exactly once; the gateway payment id and paid_at are stored on PAID.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 45b: PAYMENT_ORDER EXPIRED (the hold ended unpaid): CREATED -> EXPIRED, then EXPIRED -> LATE_PAID is
+-- still accepted (a payment arrived inside the check window). FAILED stays final.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_payment_order_expired$$
+CREATE PROCEDURE test_payment_order_expired()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_s1 VARCHAR(32);
+    DECLARE v_s2 VARCHAR(32);
+    DECLARE v_s3 VARCHAR(32);
+    DECLARE v_s4 VARCHAR(32);
+    DECLARE v_s5 VARCHAR(32);
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Order Expiry User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+
+    INSERT INTO PAYMENT_ORDER (order_id, pnr, amount_paise, status, created_at) VALUES
+        ('order_x_late', v_pnr, ROUND(v_fare * 100), 'CREATED', '2026-10-17 10:00:00'),
+        ('order_x_paid', v_pnr, ROUND(v_fare * 100), 'CREATED', '2026-10-17 10:00:00');
+
+    CALL sp_set_payment_order_result('order_x_late', 'EXPIRED', NULL, v_s1);               -- CREATED -> EXPIRED: ok
+    CALL sp_set_payment_order_result('order_x_late', 'EXPIRED', NULL, v_s2);               -- EXPIRED -> EXPIRED: refused
+    CALL sp_set_payment_order_result('order_x_late', 'LATE_PAID', 'pay_test_exp_01', v_s3); -- EXPIRED -> LATE_PAID: ok
+    CALL sp_set_payment_order_result('order_x_paid', 'FAILED', NULL, v_s4);                -- CREATED -> FAILED: ok
+    CALL sp_set_payment_order_result('order_x_paid', 'EXPIRED', NULL, v_s5);               -- FAILED -> EXPIRED: refused
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Payment Order: EXPIRED Transitions',
+            'CREATED->EXPIRED ok, EXPIRED->EXPIRED refused, EXPIRED->LATE_PAID ok, FAILED stays final',
+            CONCAT(v_s1, ',', v_s2, ',', v_s3, ',', v_s4, ',', v_s5),
+            IF(v_s1 = 'EXPIRED' AND v_s2 = 'INVALID_TRANSITION' AND v_s3 = 'LATE_PAID' AND v_s4 = 'FAILED' AND v_s5 = 'INVALID_TRANSITION', 'PASS', 'FAIL'),
+            'An unpaid order is marked EXPIRED when its hold ends, but a payment that still arrives is accepted and refunded as a late payment.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 46: The order amount is checked: it must be above zero, belong to a real booking,
+-- and equal the booking's total_fare in paise
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_payment_order_amount_check$$
+CREATE PROCEDURE test_payment_order_amount_check()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_zero_blocked TINYINT DEFAULT 0;
+    DECLARE v_fk_blocked TINYINT DEFAULT 0;
+    DECLARE v_match_ok INT DEFAULT 0;
+    DECLARE v_match_bad INT DEFAULT 0;
+    DECLARE v_pass JSON;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Order Amount User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+
+    zero_try: BEGIN
+        DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_zero_blocked = 1;
+        INSERT INTO PAYMENT_ORDER (order_id, pnr, amount_paise, status, created_at) VALUES ('order_t_zero', v_pnr, 0, 'CREATED', NOW());
+    END zero_try;
+
+    fk_try: BEGIN
+        DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_fk_blocked = 1;
+        INSERT INTO PAYMENT_ORDER (order_id, pnr, amount_paise, status, created_at) VALUES ('order_t_nopnr', '0000000000', 100, 'CREATED', NOW());
+    END fk_try;
+
+    INSERT INTO PAYMENT_ORDER (order_id, pnr, amount_paise, status, created_at) VALUES
+        ('order_t_good', v_pnr, ROUND(v_fare * 100), 'CREATED', NOW()),
+        ('order_t_wrong', v_pnr, ROUND(v_fare * 100) - 1, 'CREATED', NOW());
+
+    -- The check the backend makes before it trusts an order: amount_paise = total_fare in paise
+    SELECT SUM(po.order_id = 'order_t_good' AND po.amount_paise = ROUND(b.total_fare * 100)),
+           SUM(po.order_id = 'order_t_wrong' AND po.amount_paise <> ROUND(b.total_fare * 100))
+    INTO v_match_ok, v_match_bad
+    FROM PAYMENT_ORDER po JOIN BOOKING b ON b.pnr = po.pnr WHERE po.pnr = v_pnr;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Payment Order: Amount And Booking Checks',
+            'Zero amount blocked, unknown PNR blocked, correct amount matches the fare, wrong amount does not',
+            CONCAT('Zero blocked: ', v_zero_blocked, ', FK blocked: ', v_fk_blocked, ', Match: ', COALESCE(v_match_ok, 0), '/', COALESCE(v_match_bad, 0)),
+            IF(v_zero_blocked = 1 AND v_fk_blocked = 1 AND v_match_ok = 1 AND v_match_bad = 1, 'PASS', 'FAIL'),
+            'PAYMENT_ORDER.amount_paise is above zero, belongs to a real booking, and can be compared with BOOKING.total_fare.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- =============================================================================
+-- RULE TABLE TESTS: the admin-editable tables really drive fare and refund numbers.
+-- Every test changes a value inside a transaction, checks the new result, and rolls back.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- TEST 47: SETTING GST_RATE_AC and INSURANCE_PREMIUM_PER_PASSENGER change the fare
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_rule_setting_changes_fare$$
+CREATE PROCEDURE test_rule_setting_changes_fare()
+BEGIN
+    DECLARE v_f0 JSON;
+    DECLARE v_f1 JSON;
+    DECLARE v_taxable DECIMAL(10,2);
+
+    START TRANSACTION;
+    SET v_f0 = fn_calculate_fare(3, 111, 800, 'GENERAL', 'NONE', 1, 1001);
+    SET v_taxable = JSON_EXTRACT(v_f0, '$.total_fare') - JSON_EXTRACT(v_f0, '$.gst') - JSON_EXTRACT(v_f0, '$.insurance');
+
+    UPDATE SETTING SET setting_value = '0.18' WHERE setting_key = 'GST_RATE_AC';
+    UPDATE SETTING SET setting_value = '1.50' WHERE setting_key = 'INSURANCE_PREMIUM_PER_PASSENGER';
+    SET v_f1 = fn_calculate_fare(3, 111, 800, 'GENERAL', 'NONE', 1, 1001);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Rule Tables: GST And Insurance Settings Drive The Fare',
+            'Seed: GST 5% and insurance 0.45. After the edit: GST 18% of the taxable amount and insurance 1.50',
+            CONCAT('Before gst ', JSON_EXTRACT(v_f0, '$.gst'), ' ins ', JSON_EXTRACT(v_f0, '$.insurance'),
+                   ', after gst ', JSON_EXTRACT(v_f1, '$.gst'), ' ins ', JSON_EXTRACT(v_f1, '$.insurance')),
+            IF(JSON_EXTRACT(v_f0, '$.gst') = ROUND(v_taxable * 0.05, 2) AND JSON_EXTRACT(v_f0, '$.insurance') = 0.45
+               AND JSON_EXTRACT(v_f1, '$.gst') = ROUND(v_taxable * 0.18, 2) AND JSON_EXTRACT(v_f1, '$.insurance') = 1.50, 'PASS', 'FAIL'),
+            'The fare function reads GST_RATE_AC and INSURANCE_PREMIUM_PER_PASSENGER from SETTING.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 48: CONCESSION_RULE percent and the senior switch change the fare
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_rule_concession_changes_fare$$
+CREATE PROCEDURE test_rule_concession_changes_fare()
+BEGIN
+    DECLARE v_d0 JSON;
+    DECLARE v_d1 JSON;
+    DECLARE v_d2 JSON;
+    DECLARE v_s0 JSON;
+    DECLARE v_s1 JSON;
+    DECLARE v_s2 JSON;
+    DECLARE v_base DECIMAL(10,2);
+
+    START TRANSACTION;
+    -- Divyaang 3A on a Rajdhani (premium rule 8: 25 percent of the base fare)
+    SET v_d0 = fn_calculate_fare(3, 111, 800, 'GENERAL', 'DIVYAANG', 0, 1001);
+    SET v_base = JSON_EXTRACT(v_d0, '$.base_fare');
+    UPDATE CONCESSION_RULE SET discount_pct = 60 WHERE rule_id = 8;
+    SET v_d1 = fn_calculate_fare(3, 111, 800, 'GENERAL', 'DIVYAANG', 0, 1001);
+    UPDATE CONCESSION_RULE SET is_active = 0 WHERE rule_id = 8;
+    SET v_d2 = fn_calculate_fare(3, 111, 800, 'GENERAL', 'DIVYAANG', 0, 1001);   -- premium rule off: the standard 75 percent rule applies
+
+    -- Senior citizen: no concession in the seed; needs the setting AND an active rule
+    SET v_s0 = fn_calculate_fare(4, 111, 800, 'GENERAL', 'SENIOR_CITIZEN', 0, 1001);
+    UPDATE CONCESSION_RULE SET is_active = 1, discount_pct = 40 WHERE rule_id = 10;
+    SET v_s1 = fn_calculate_fare(4, 111, 800, 'GENERAL', 'SENIOR_CITIZEN', 0, 1001);   -- rule on, setting still false
+    UPDATE SETTING SET setting_value = 'true' WHERE setting_key = 'CONCESSION_SENIOR_ENABLED';
+    SET v_s2 = fn_calculate_fare(4, 111, 800, 'GENERAL', 'SENIOR_CITIZEN', 0, 1001);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Rule Tables: CONCESSION_RULE Drives The Discount',
+            'Divyaang 25% -> 60% -> standard 75% when the premium rule is off; senior 0 until setting and rule are both on (40%)',
+            CONCAT('Divyaang ', JSON_EXTRACT(v_d0, '$.concession_discount'), '/', JSON_EXTRACT(v_d1, '$.concession_discount'), '/', JSON_EXTRACT(v_d2, '$.concession_discount'),
+                   ', senior ', JSON_EXTRACT(v_s0, '$.concession_discount'), '/', JSON_EXTRACT(v_s1, '$.concession_discount'), '/', JSON_EXTRACT(v_s2, '$.concession_discount')),
+            IF(JSON_EXTRACT(v_d0, '$.concession_discount') = ROUND(v_base * 0.25, 2)
+               AND JSON_EXTRACT(v_d1, '$.concession_discount') = ROUND(v_base * 0.60, 2)
+               AND JSON_EXTRACT(v_d2, '$.concession_discount') = ROUND(v_base * 0.75, 2)
+               AND JSON_EXTRACT(v_s0, '$.concession_discount') = 0
+               AND JSON_EXTRACT(v_s1, '$.concession_discount') = 0
+               AND JSON_EXTRACT(v_s2, '$.concession_discount') > 0, 'PASS', 'FAIL'),
+            'The discount percent is read from CONCESSION_RULE (premium rule first, then standard). Seniors need CONCESSION_SENIOR_ENABLED = true as well.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 49: DYNAMIC_FARE_ENABLED (BR-F11) adds the Tatkal surcharge only when on, only for TATKAL, only when 80% full
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_rule_dynamic_fare_switch$$
+CREATE PROCEDURE test_rule_dynamic_fare_switch()
+BEGIN
+    DECLARE v_off JSON;
+    DECLARE v_on_full JSON;
+    DECLARE v_on_general JSON;
+    DECLARE v_on_empty JSON;
+
+    START TRANSACTION;
+    UPDATE SCHEDULE_CLASS_INVENTORY SET available_seats = FLOOR(total_seats * 0.10) WHERE schedule_id = 1001 AND class_id = 3;
+    SET v_off = fn_calculate_fare(3, 101, 800, 'TATKAL', 'NONE', 0, 1001);
+
+    UPDATE SETTING SET setting_value = 'true' WHERE setting_key = 'DYNAMIC_FARE_ENABLED';
+    SET v_on_full = fn_calculate_fare(3, 101, 800, 'TATKAL', 'NONE', 0, 1001);
+    SET v_on_general = fn_calculate_fare(3, 101, 800, 'GENERAL', 'NONE', 0, 1001);
+
+    UPDATE SCHEDULE_CLASS_INVENTORY SET available_seats = total_seats WHERE schedule_id = 1001 AND class_id = 3;
+    SET v_on_empty = fn_calculate_fare(3, 101, 800, 'TATKAL', 'NONE', 0, 1001);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Rule Tables: DYNAMIC_FARE_ENABLED Switch',
+            'Surcharge 0 when off, base x 0.5 when on + Tatkal + 90% full, 0 for GENERAL, 0 when the run is empty',
+            CONCAT('Off ', JSON_EXTRACT(v_off, '$.dynamic_surcharge'), ', on+full ', JSON_EXTRACT(v_on_full, '$.dynamic_surcharge'),
+                   ', general ', JSON_EXTRACT(v_on_general, '$.dynamic_surcharge'), ', empty ', JSON_EXTRACT(v_on_empty, '$.dynamic_surcharge')),
+            IF(JSON_EXTRACT(v_off, '$.dynamic_surcharge') = 0
+               AND JSON_EXTRACT(v_on_full, '$.dynamic_surcharge') = ROUND(JSON_EXTRACT(v_on_full, '$.base_fare') * 0.5, 2)
+               AND JSON_EXTRACT(v_on_full, '$.dynamic_surcharge') > 0
+               AND JSON_EXTRACT(v_on_general, '$.dynamic_surcharge') = 0
+               AND JSON_EXTRACT(v_on_empty, '$.dynamic_surcharge') = 0, 'PASS', 'FAIL'),
+            'BR-F11 is off in the seed. Turning the setting on applies it to Tatkal fares of nearly full runs only.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 50: REFUND_RULE percent and flat minimum change the cancellation charge (class rule beats general rule)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_rule_refund_rule_changes_charge$$
+CREATE PROCEDURE test_rule_refund_rule_changes_charge()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_pno INT;
+    DECLARE v_elig DECIMAL(10,2);
+    DECLARE v_at DATETIME;
+    DECLARE v_r0 JSON;
+    DECLARE v_r1 JSON;
+    DECLARE v_r2 JSON;
+    DECLARE v_r3 JSON;
+    DECLARE v_r4 JSON;
+
+    SELECT b.pnr, r.passenger_no, pb.total_fare - pb.insurance, TIMESTAMP(ts.journey_date, ts.departure_time) - INTERVAL 30 HOUR
+    INTO v_pnr, v_pno, v_elig, v_at
+    FROM BOOKING b
+    JOIN PASSENGER_BOOKING pb ON pb.pnr = b.pnr
+    JOIN RESERVATION r ON r.pnr = pb.pnr AND r.passenger_no = pb.passenger_no
+    JOIN TRAIN_SCHEDULE ts ON ts.schedule_id = b.schedule_id
+    WHERE b.class_id = 3 AND b.quota = 'GENERAL' AND r.status = 'CONFIRMED' AND b.created_at < '2026-11-01'
+    ORDER BY b.pnr LIMIT 1;
+
+    START TRANSACTION;
+    SET v_r0 = fn_calculate_cancellation_refund(v_pnr, v_pno, v_at);                 -- 30 hours before: the 24-72 hour slab, 25 percent, flat 180 for 3A
+    UPDATE REFUND_RULE SET deduction_pct = 40 WHERE class_id = 3 AND min_hours = 24;
+    SET v_r1 = fn_calculate_cancellation_refund(v_pnr, v_pno, v_at);
+    UPDATE REFUND_RULE SET deduction_pct = 40 WHERE class_id IS NULL AND min_hours = 24;   -- general rule: must NOT matter for 3A (it has its own row)
+    UPDATE REFUND_RULE SET deduction_pct = 1 WHERE class_id IS NULL AND min_hours = 24;
+    SET v_r2 = fn_calculate_cancellation_refund(v_pnr, v_pno, v_at);
+    UPDATE REFUND_RULE SET deduction_pct = 0, flat_min_charge = 999 WHERE class_id = 3 AND min_hours = 24;
+    SET v_r3 = fn_calculate_cancellation_refund(v_pnr, v_pno, v_at);                 -- flat minimum wins over a 0 percent slab
+    DELETE FROM REFUND_RULE WHERE class_id = 3 AND min_hours = 24;                   -- no 3A row for this slab: the general row is used
+    SET v_r4 = fn_calculate_cancellation_refund(v_pnr, v_pno, v_at);
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Rule Tables: REFUND_RULE Drives The Cancellation Charge',
+            '25% (min 180) -> 40% -> general rule ignored for 3A -> flat 999 -> general rule when the class row is gone',
+            CONCAT('Charges ', JSON_EXTRACT(v_r0, '$.charge'), ' / ', JSON_EXTRACT(v_r1, '$.charge'), ' / ', JSON_EXTRACT(v_r2, '$.charge'),
+                   ' / ', JSON_EXTRACT(v_r3, '$.charge'), ' / ', JSON_EXTRACT(v_r4, '$.charge')),
+            IF(JSON_EXTRACT(v_r0, '$.charge') = GREATEST(ROUND(v_elig * 0.25, 2), 180)
+               AND JSON_EXTRACT(v_r1, '$.charge') = GREATEST(ROUND(v_elig * 0.40, 2), 180)
+               AND JSON_EXTRACT(v_r2, '$.charge') = JSON_EXTRACT(v_r1, '$.charge')
+               AND JSON_EXTRACT(v_r3, '$.charge') = LEAST(999, v_elig)
+               AND JSON_EXTRACT(v_r4, '$.charge') = GREATEST(ROUND(v_elig * 0.01, 2), 120)
+               AND JSON_EXTRACT(v_r0, '$.refund_amount') = ROUND(v_elig - JSON_EXTRACT(v_r0, '$.charge'), 2), 'PASS', 'FAIL'),
+            'The slab is the highest min_hours reached; a class row beats a general row of the same slab; the charge is the larger of the percent and the flat minimum, never more than the fare.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 51: Values that would break the money maths are refused (SETTING trigger and CHECK constraints)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_rule_bad_values_refused$$
+CREATE PROCEDURE test_rule_bad_values_refused()
+BEGIN
+    DECLARE v_refused INT DEFAULT 0;
+    DECLARE v_accepted INT DEFAULT 0;
+
+    START TRANSACTION;
+
+    t1: BEGIN DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_refused = v_refused + 1;
+        UPDATE SETTING SET setting_value = '1.5' WHERE setting_key = 'GST_RATE_AC'; END t1;
+    t2: BEGIN DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_refused = v_refused + 1;
+        UPDATE SETTING SET setting_value = 'abc' WHERE setting_key = 'GST_RATE_AC'; END t2;
+    t3: BEGIN DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_refused = v_refused + 1;
+        UPDATE SETTING SET setting_value = '-5' WHERE setting_key = 'INSURANCE_PREMIUM_PER_PASSENGER'; END t3;
+    t4: BEGIN DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_refused = v_refused + 1;
+        UPDATE SETTING SET setting_value = 'yes' WHERE setting_key = 'DYNAMIC_FARE_ENABLED'; END t4;
+    t5: BEGIN DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_refused = v_refused + 1;
+        UPDATE CONCESSION_RULE SET discount_pct = 150 WHERE rule_id = 8; END t5;
+    t6: BEGIN DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_refused = v_refused + 1;
+        UPDATE REFUND_RULE SET deduction_pct = -1 WHERE class_id = 3 AND min_hours = 24; END t6;
+    t7: BEGIN DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_refused = v_refused + 1;
+        UPDATE REFUND_RULE SET flat_min_charge = -10 WHERE class_id = 3 AND min_hours = 24; END t7;
+    t8: BEGIN DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_refused = v_refused + 1;
+        UPDATE FARE SET rate_per_km = -1 WHERE fare_id = 9; END t8;
+
+    -- Allowed values still work
+    UPDATE SETTING SET setting_value = '0.12' WHERE setting_key = 'GST_RATE_AC';
+    SELECT COUNT(*) INTO v_accepted FROM SETTING WHERE setting_key = 'GST_RATE_AC' AND setting_value = '0.12';
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Rule Tables: Bad Values Refused',
+            '8 bad edits refused, a good edit accepted',
+            CONCAT('Refused ', v_refused, ' of 8, good edit accepted: ', v_accepted),
+            IF(v_refused = 8 AND v_accepted = 1, 'PASS', 'FAIL'),
+            'GST outside 0 to 1, text, negative premium, bad on/off value, percent outside 0 to 100, negative flat charge and negative fare rate cannot be saved.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 52: A rule edit writes an AUDIT_LOG row (the audit triggers keep working)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_rule_edit_writes_audit$$
+CREATE PROCEDURE test_rule_edit_writes_audit()
+BEGIN
+    DECLARE v_before INT;
+    DECLARE v_after INT;
+    DECLARE v_action VARCHAR(64);
+
+    START TRANSACTION;
+    SELECT COUNT(*) INTO v_before FROM AUDIT_LOG;
+    UPDATE SETTING SET setting_value = '0.12' WHERE setting_key = 'GST_RATE_AC';
+    UPDATE REFUND_RULE SET deduction_pct = 30 WHERE class_id = 3 AND min_hours = 24;
+    UPDATE CONCESSION_RULE SET discount_pct = 55 WHERE rule_id = 8;
+    SELECT COUNT(*) INTO v_after FROM AUDIT_LOG;
+    SELECT action INTO v_action FROM AUDIT_LOG ORDER BY log_id DESC LIMIT 1;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Rule Tables: Edits Write The Audit Log',
+            'Three edits write three AUDIT_LOG rows',
+            CONCAT('Rows added: ', v_after - v_before, ', last action: ', COALESCE(v_action, 'NULL')),
+            IF(v_after - v_before = 3, 'PASS', 'FAIL'),
+            'BR-A8: a change to a fare, concession, refund rule or setting is logged by a database trigger.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 53: Ids are handed out by the database: inserts without an id never clash, explicit ids still work
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_auto_increment_ids$$
+CREATE PROCEDURE test_auto_increment_ids()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_pass JSON;
+    DECLARE v_id1 INT;
+    DECLARE v_id2 INT;
+    DECLARE v_explicit INT;
+    DECLARE v_after_explicit INT;
+    DECLARE v_res_ok INT DEFAULT 0;
+    DECLARE v_auto_cols INT DEFAULT 0;
+
+    SET v_pass = JSON_ARRAY(
+        JSON_OBJECT('saved_passenger_id', 7, 'name', 'Id Test User', 'age', 30, 'gender', 'FEMALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH')
+    );
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 10:00:00';
+    CALL sp_create_booking(50001, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 1, v_pass, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    SELECT res_id INTO v_res_ok FROM RESERVATION WHERE pnr = v_pnr AND passenger_no = 1;
+
+    INSERT INTO PAYMENT (pnr, amount, method, status, gateway_payment_id, paid_at) VALUES (v_pnr, 10.00, 'UPI', 'SUCCESS', 'pay_test_ai_1', '2026-10-17 10:01:00');
+    SET v_id1 = LAST_INSERT_ID();
+    INSERT INTO PAYMENT (pnr, amount, method, status, gateway_payment_id, paid_at) VALUES (v_pnr, 11.00, 'UPI', 'SUCCESS', 'pay_test_ai_2', '2026-10-17 10:02:00');
+    SET v_id2 = LAST_INSERT_ID();
+    -- an explicit id (the seed loader does this) moves the counter up, so the next automatic id is higher still
+    SET v_explicit = v_id2 + 500;
+    INSERT INTO PAYMENT (payment_id, pnr, amount, method, status, gateway_payment_id, paid_at) VALUES (v_explicit, v_pnr, 12.00, 'UPI', 'SUCCESS', 'pay_test_ai_3', '2026-10-17 10:03:00');
+    INSERT INTO PAYMENT (pnr, amount, method, status, gateway_payment_id, paid_at) VALUES (v_pnr, 13.00, 'UPI', 'SUCCESS', 'pay_test_ai_4', '2026-10-17 10:04:00');
+    SET v_after_explicit = LAST_INSERT_ID();
+
+    SELECT COUNT(*) INTO v_auto_cols FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'railway_db' AND EXTRA LIKE '%auto_increment%'
+      AND ((TABLE_NAME = 'RESERVATION' AND COLUMN_NAME = 'res_id') OR (TABLE_NAME = 'PAYMENT' AND COLUMN_NAME = 'payment_id')
+        OR (TABLE_NAME = 'REFUND' AND COLUMN_NAME = 'refund_id') OR (TABLE_NAME = 'CANCELLATION' AND COLUMN_NAME = 'cancel_id')
+        OR (TABLE_NAME = 'TICKET_VERIFICATION' AND COLUMN_NAME = 'verify_id') OR (TABLE_NAME = 'CHART_SNAPSHOT' AND COLUMN_NAME = 'snapshot_id'));
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Ids: AUTO_INCREMENT On The Six Concurrent Tables',
+            'Booking gets a res_id by itself, ids go up, an explicit id still works and the counter moves above it, 6 columns are AUTO_INCREMENT',
+            CONCAT('res_id ', COALESCE(v_res_ok, 0), ', payment ids ', v_id1, ',', v_id2, ',', v_explicit, ',', v_after_explicit, ', auto columns ', v_auto_cols),
+            IF(v_res_ok > 0 AND v_id2 > v_id1 AND v_after_explicit > v_explicit AND v_auto_cols = 6, 'PASS', 'FAIL'),
+            'res_id, payment_id, refund_id, cancel_id, verify_id and snapshot_id no longer use MAX+1, so parallel bookings cannot get the same id.');
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 54-56: sp_verify_ticket - a valid check, a staff member who is not on duty, and an ID that was not checked
+-- Train 125 on 2026-10-19 (Schedule 1137, PNR 2849100701). Everything is rolled back.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_verify_ticket_cases$$
+CREATE PROCEDURE test_verify_ticket_cases()
+BEGIN
+    DECLARE v_verify_id INT;
+    DECLARE v_status VARCHAR(20);
+    DECLARE v_before INT;
+    DECLARE v_after INT;
+    DECLARE v_stored VARCHAR(20);
+
+    START TRANSACTION;
+    INSERT INTO STAFF_ASSIGNMENT (assign_id, staff_id, schedule_id, station_id, duty_type, shift_start, shift_end)
+    VALUES (9990, 1, 1137, 10, 'TRAIN_DUTY', '2026-10-19 00:00:00', '2026-10-19 23:59:59');
+
+    -- Valid check by the staff member on duty
+    SELECT COUNT(*) INTO v_before FROM TICKET_VERIFICATION;
+    CALL sp_verify_ticket('2849100701', 1, 1, 1, 0, 'VALID', 'ID checked by TC', 0, v_verify_id, v_status);
+    SELECT COUNT(*) INTO v_after FROM TICKET_VERIFICATION;
+    SELECT result INTO v_stored FROM TICKET_VERIFICATION WHERE verify_id = v_verify_id;
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Verify Ticket: Valid Check By Staff On Duty',
+            'SUCCESS, a verify_id is returned, one TICKET_VERIFICATION row with result VALID',
+            CONCAT(COALESCE(v_status, 'NULL'), ', id ', COALESCE(v_verify_id, 'NULL'), ', rows +', v_after - v_before, ', stored ', COALESCE(v_stored, 'NULL')),
+            IF(v_status = 'SUCCESS' AND v_verify_id IS NOT NULL AND v_after - v_before = 1 AND v_stored = 'VALID', 'PASS', 'FAIL'),
+            'BR-ST3: a ticket check by a TC on TRAIN_DUTY for the run is stored with its own verify_id.');
+
+    -- Staff 2 has no TRAIN_DUTY for this run
+    SELECT COUNT(*) INTO v_before FROM TICKET_VERIFICATION;
+    CALL sp_verify_ticket('2849100701', 1, 2, 1, 0, 'VALID', 'x', 0, v_verify_id, v_status);
+    SELECT COUNT(*) INTO v_after FROM TICKET_VERIFICATION;
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Verify Ticket: Staff Not On Duty Refused',
+            'NOT_ON_DUTY, no verify_id, no row written',
+            CONCAT(COALESCE(v_status, 'NULL'), ', id ', COALESCE(v_verify_id, 'NULL'), ', rows +', v_after - v_before),
+            IF(v_status = 'NOT_ON_DUTY' AND v_verify_id IS NULL AND v_after = v_before, 'PASS', 'FAIL'),
+            'BR-ST2: only staff with TRAIN_DUTY for the run may check its tickets.');
+
+    -- The TC did not tick "ID checked"
+    SELECT COUNT(*) INTO v_before FROM TICKET_VERIFICATION;
+    CALL sp_verify_ticket('2849100701', 2, 1, 0, 0, 'VALID', 'x', 0, v_verify_id, v_status);
+    SELECT COUNT(*) INTO v_after FROM TICKET_VERIFICATION;
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Verify Ticket: ID Not Checked Refused',
+            'VALIDATION_ERROR, no verify_id, no row written',
+            CONCAT(COALESCE(v_status, 'NULL'), ', id ', COALESCE(v_verify_id, 'NULL'), ', rows +', v_after - v_before),
+            IF(v_status = 'VALIDATION_ERROR' AND v_verify_id IS NULL AND v_after = v_before, 'PASS', 'FAIL'),
+            'BR-ST3: a ticket check is only stored when the TC confirms the passenger ID was checked.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 57-59: sp_board_passenger - a CONFIRMED passenger, a RAC passenger, and a passenger blocked by an open delay TDR
+-- Train 125 on 2026-10-19 (Schedule 1137, class 3A). Everything is rolled back.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_board_passenger_cases$$
+CREATE PROCEDURE test_board_passenger_cases()
+BEGIN
+    DECLARE v_status VARCHAR(20);
+    DECLARE v_res_status VARCHAR(20);
+    DECLARE v_seats_before INT;
+    DECLARE v_rac_before INT;
+    DECLARE v_seats_after INT;
+    DECLARE v_rac_after INT;
+
+    START TRANSACTION;
+    INSERT INTO STAFF_ASSIGNMENT (assign_id, staff_id, schedule_id, station_id, duty_type, shift_start, shift_end)
+    VALUES (9991, 1, 1137, 10, 'TRAIN_DUTY', '2026-10-19 00:00:00', '2026-10-19 23:59:59');
+
+    -- CONFIRMED passenger boards
+    CALL sp_board_passenger('2849100701', 2, 1, 0, v_status);
+    SELECT status INTO v_res_status FROM RESERVATION WHERE pnr = '2849100701' AND passenger_no = 2;
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Board: CONFIRMED Passenger Boards',
+            'BOARDED and the reservation is BOARDED',
+            CONCAT(COALESCE(v_status, 'NULL'), ', reservation ', COALESCE(v_res_status, 'NULL')),
+            IF(v_status = 'BOARDED' AND v_res_status = 'BOARDED', 'PASS', 'FAIL'),
+            'BR-ST4: a CONFIRMED passenger on a run where the staff member has TRAIN_DUTY can be marked BOARDED.');
+
+    -- RAC passenger boards: the inventory counters move with it
+    SELECT available_seats, rac_count INTO v_seats_before, v_rac_before
+    FROM SCHEDULE_CLASS_INVENTORY WHERE schedule_id = 1137 AND class_id = 3;
+    CALL sp_board_passenger('2849100985', 1, 1, 0, v_status);
+    SELECT status INTO v_res_status FROM RESERVATION WHERE pnr = '2849100985' AND passenger_no = 1;
+    SELECT available_seats, rac_count INTO v_seats_after, v_rac_after
+    FROM SCHEDULE_CLASS_INVENTORY WHERE schedule_id = 1137 AND class_id = 3;
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Board: RAC Passenger Boards And Inventory Follows',
+            'BOARDED, available_seats -1 and rac_count -1',
+            CONCAT(COALESCE(v_status, 'NULL'), ', reservation ', COALESCE(v_res_status, 'NULL'), ', seats ', v_seats_before, '->', v_seats_after, ', rac ', v_rac_before, '->', v_rac_after),
+            IF(v_status = 'BOARDED' AND v_res_status = 'BOARDED' AND v_seats_after = v_seats_before - 1 AND v_rac_after = v_rac_before - 1, 'PASS', 'FAIL'),
+            'A RAC passenger who boards uses a seat for real, so the class counters change and the inventory audit stays at 0 mismatches.');
+
+    -- Open delay TDR on the third passenger blocks boarding (BR-T6)
+    INSERT INTO TDR_FILING (tdr_ref_no, pnr, passenger_no, reason, filed_at, status, evidence_ref)
+    VALUES ('TDR-TEST-BOARD-1', '2849100701', 3, 'TRAIN_DELAYED_OVER_3_HOURS', '2026-10-19 12:00:00', 'FILED', 'DELAY-NOTICE');
+    CALL sp_board_passenger('2849100701', 3, 1, 0, v_status);
+    SELECT status INTO v_res_status FROM RESERVATION WHERE pnr = '2849100701' AND passenger_no = 3;
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Board: Open Delay TDR Blocks Boarding',
+            'TDR_OPEN and the passenger stays CONFIRMED',
+            CONCAT(COALESCE(v_status, 'NULL'), ', reservation ', COALESCE(v_res_status, 'NULL')),
+            IF(v_status = 'TDR_OPEN' AND v_res_status = 'CONFIRMED', 'PASS', 'FAIL'),
+            'BR-T6: a passenger with a FILED, UNDER_REVIEW or APPROVED delay TDR cannot be boarded.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 60-61: sp_mark_passenger_noshow - the promotion happens, and a second mark is refused
+-- Train 125 on 2026-10-19 (Schedule 1137): PNR 2849100701 passenger 1, next RAC passenger is PNR 2849100985.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_noshow_cases$$
+CREATE PROCEDURE test_noshow_cases()
+BEGIN
+    DECLARE v_status VARCHAR(20);
+    DECLARE v_status2 VARCHAR(20);
+    DECLARE v_board VARCHAR(20);
+    DECLARE v_res_status VARCHAR(20);
+    DECLARE v_seat INT;
+    DECLARE v_rac_status VARCHAR(20);
+    DECLARE v_seat_now INT;
+
+    START TRANSACTION;
+    INSERT INTO STAFF_ASSIGNMENT (assign_id, staff_id, schedule_id, station_id, duty_type, shift_start, shift_end)
+    VALUES (9992, 1, 1137, 10, 'TRAIN_DUTY', '2026-10-19 00:00:00', '2026-10-19 23:59:59');
+
+    SELECT seat_id INTO v_seat FROM RESERVATION WHERE pnr = '2849100701' AND passenger_no = 1;
+    CALL sp_mark_passenger_noshow('2849100701', 1, 1, 0, v_status);
+    SELECT status, seat_id INTO v_res_status, v_seat_now FROM RESERVATION WHERE pnr = '2849100701' AND passenger_no = 1;
+    SELECT status INTO v_rac_status FROM RESERVATION WHERE pnr = '2849100985' AND passenger_no = 1;
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('No-Show: Seat Freed And RAC Promoted',
+            'NO_SHOW_MARKED, passenger NO_SHOW without a seat, next RAC passenger CONFIRMED',
+            CONCAT(COALESCE(v_status, 'NULL'), ', ', COALESCE(v_res_status, 'NULL'), ', seat ', COALESCE(v_seat_now, 'none'), ', next RAC ', COALESCE(v_rac_status, 'NULL')),
+            IF(v_status = 'NO_SHOW_MARKED' AND v_res_status = 'NO_SHOW' AND v_seat IS NOT NULL AND v_seat_now IS NULL AND v_rac_status = 'CONFIRMED', 'PASS', 'FAIL'),
+            'BR-ST4: the no-show releases the seat and sp_promote_passenger moves the first RAC passenger into it.');
+
+    -- The same passenger again, and boarding after a no-show: both refused
+    CALL sp_mark_passenger_noshow('2849100701', 1, 1, 0, v_status2);
+    CALL sp_board_passenger('2849100701', 1, 1, 0, v_board);
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('No-Show: Second Mark And Boarding Not Eligible',
+            'NOT_ELIGIBLE for the second no-show and NOT_ELIGIBLE for boarding',
+            CONCAT(COALESCE(v_status2, 'NULL'), ' / ', COALESCE(v_board, 'NULL')),
+            IF(v_status2 = 'NOT_ELIGIBLE' AND v_board = 'NOT_ELIGIBLE', 'PASS', 'FAIL'),
+            'Only CONFIRMED or RAC passengers can be marked no-show or boarded; a NO_SHOW passenger is neither.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 62-63: sp_prepare_chart on Train 119, 2026-10-19 (Schedule 1111) - snapshot contents and the waiting-list purge
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_prepare_chart_snapshot_and_purge$$
+CREATE PROCEDURE test_prepare_chart_snapshot_and_purge()
+BEGIN
+    DECLARE v_sched_id INT DEFAULT 1111;
+    DECLARE v_expected INT;
+    DECLARE v_wl INT;
+    DECLARE v_wl_money DECIMAL(12,2);
+    DECLARE v_snap_out INT DEFAULT 0;
+    DECLARE v_snap_rows INT;
+    DECLARE v_bad_rows INT;
+    DECLARE v_cancelled_rows INT;
+    DECLARE v_prepared DATETIME;
+    DECLARE v_wl_left INT;
+    DECLARE v_purge_rows INT;
+    DECLARE v_purge_pending INT;
+    DECLARE v_purge_money DECIMAL(12,2);
+
+    START TRANSACTION;
+
+    SELECT COUNT(*) INTO v_expected FROM RESERVATION WHERE schedule_id = v_sched_id AND status IN ('CONFIRMED', 'RAC');
+    SELECT COUNT(*), COALESCE(SUM(pb.total_fare - pb.insurance), 0) INTO v_wl, v_wl_money
+    FROM RESERVATION r JOIN PASSENGER_BOOKING pb ON pb.pnr = r.pnr AND pb.passenger_no = r.passenger_no
+    WHERE r.schedule_id = v_sched_id AND r.status = 'WAITING_LIST';
+
+    CALL sp_prepare_chart(v_sched_id, 0, v_snap_out);
+
+    -- Snapshot contents: one row per CONFIRMED or RAC passenger, with coach, seat and stops filled in, same status as the reservation
+    SELECT COUNT(*) INTO v_snap_rows FROM CHART_SNAPSHOT WHERE schedule_id = v_sched_id;
+    SELECT COUNT(*) INTO v_bad_rows
+    FROM CHART_SNAPSHOT s LEFT JOIN RESERVATION r ON r.pnr = s.pnr AND r.passenger_no = s.passenger_no
+    WHERE s.schedule_id = v_sched_id
+      AND (s.coach_no IS NULL OR s.seat_no IS NULL OR s.berth_type IS NULL OR s.from_station_id IS NULL OR s.to_station_id IS NULL
+           OR r.status IS NULL OR r.status <> s.status);
+    SELECT COUNT(*) INTO v_cancelled_rows
+    FROM CHART_SNAPSHOT s JOIN RESERVATION r ON r.pnr = s.pnr AND r.passenger_no = s.passenger_no
+    WHERE s.schedule_id = v_sched_id AND r.status = 'CANCELLED';
+    SELECT chart_prepared_at INTO v_prepared FROM TRAIN_SCHEDULE WHERE schedule_id = v_sched_id;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Chart Prep: Snapshot Holds One Row Per Travelling Passenger',
+            'Snapshot rows = CONFIRMED + RAC passengers, no empty field, no cancelled passenger, run marked prepared',
+            CONCAT('Expected ', v_expected, ', returned ', v_snap_out, ', stored ', v_snap_rows, ', bad ', v_bad_rows, ', cancelled ', v_cancelled_rows, ', prepared ', IF(v_prepared IS NULL, 'no', 'yes')),
+            IF(v_snap_out = v_expected AND v_snap_rows = v_expected AND v_expected > 0 AND v_bad_rows = 0 AND v_cancelled_rows = 0 AND v_prepared IS NOT NULL, 'PASS', 'FAIL'),
+            'BR-B12a: the chart snapshot lists coach, seat, berth, status and stops for every passenger who still travels.');
+
+    -- Waiting-list purge: nobody is left waiting, and every purged passenger gets a PENDING refund of the full fare (insurance excluded)
+    SELECT COUNT(*) INTO v_wl_left FROM RESERVATION WHERE schedule_id = v_sched_id AND status = 'WAITING_LIST';
+    SELECT COUNT(*), COALESCE(SUM(r.status = 'PENDING'), 0), COALESCE(SUM(r.amount), 0)
+    INTO v_purge_rows, v_purge_pending, v_purge_money
+    FROM REFUND r JOIN PAYMENT p ON p.payment_id = r.payment_id
+    JOIN BOOKING b ON b.pnr = p.pnr
+    WHERE r.reason = 'WAITLIST_PURGE' AND b.schedule_id = v_sched_id;
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Chart Prep: Waiting List Purged With Full PENDING Refunds',
+            'No WL left, one PENDING WAITLIST_PURGE refund per purged passenger, amount = full fare, insurance excluded',
+            CONCAT('WL ', v_wl, '->', v_wl_left, ', refunds ', v_purge_rows, ' (pending ', v_purge_pending, '), money ', v_purge_money, ' of ', v_wl_money),
+            IF(v_wl > 0 AND v_wl_left = 0 AND v_purge_rows = v_wl AND v_purge_pending = v_wl AND v_purge_money = v_wl_money, 'PASS', 'FAIL'),
+            'BR-W8: waitlisted passengers are cancelled at chart time and refunded in full; the money leaves only when the gateway step marks the refund PROCESSED.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 64-65: Concession fares with the seed rules (golden numbers)
+-- Sleeper (class 4) on Train 101 (Duronto, standard rules, 800 km, GENERAL quota, no insurance, run 1001)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_concession_fare_cases$$
+CREATE PROCEDURE test_concession_fare_cases()
+BEGIN
+    DECLARE v_none JSON;
+    DECLARE v_div JSON;
+    DECLARE v_senior_off JSON;
+    DECLARE v_senior_on JSON;
+
+    START TRANSACTION;
+
+    SET v_none = fn_calculate_fare(4, 101, 800, 'GENERAL', 'NONE', 0, 1001);
+    SET v_div = fn_calculate_fare(4, 101, 800, 'GENERAL', 'DIVYAANG', 0, 1001);
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Fare: DIVYAANG Sleeper Gets 75 Percent Off The Base Fare',
+            'Base 496.00, discount 372.00, total 174.00 (full fare without concession 546.00)',
+            CONCAT('Base ', JSON_EXTRACT(v_div, '$.base_fare'), ', discount ', JSON_EXTRACT(v_div, '$.concession_discount'),
+                   ', total ', JSON_EXTRACT(v_div, '$.total_fare'), ' (none ', JSON_EXTRACT(v_none, '$.total_fare'), ')'),
+            IF(JSON_EXTRACT(v_div, '$.base_fare') = 496 AND JSON_EXTRACT(v_div, '$.concession_discount') = 372
+               AND JSON_EXTRACT(v_div, '$.total_fare') = 174 AND JSON_EXTRACT(v_none, '$.total_fare') = 546, 'PASS', 'FAIL'),
+            'Seed rule 1: DIVYAANG on class 4 of a standard train is 75 percent of the base fare; the fixed charges stay.');
+
+    -- Senior citizen: no concession in the seed (rule off, setting false); the rule and the setting must both be on
+    SET v_senior_off = fn_calculate_fare(4, 101, 800, 'GENERAL', 'SENIOR_CITIZEN', 0, 1001);
+    UPDATE CONCESSION_RULE SET is_active = 1, discount_pct = 40 WHERE rule_id = 10;
+    UPDATE SETTING SET setting_value = 'true' WHERE setting_key = 'CONCESSION_SENIOR_ENABLED';
+    SET v_senior_on = fn_calculate_fare(4, 101, 800, 'GENERAL', 'SENIOR_CITIZEN', 0, 1001);
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Fare: SENIOR_CITIZEN Pays Full Fare Until Switched On, Then 40 Percent Off',
+            'Seed: discount 0.00, total 546.00. Rule and setting on: discount 198.40, total 347.60',
+            CONCAT('Seed: ', JSON_EXTRACT(v_senior_off, '$.concession_discount'), '/', JSON_EXTRACT(v_senior_off, '$.total_fare'),
+                   '. On: ', JSON_EXTRACT(v_senior_on, '$.concession_discount'), '/', JSON_EXTRACT(v_senior_on, '$.total_fare')),
+            IF(JSON_EXTRACT(v_senior_off, '$.concession_discount') = 0 AND JSON_EXTRACT(v_senior_off, '$.total_fare') = 546
+               AND JSON_EXTRACT(v_senior_on, '$.concession_discount') = 198.4 AND JSON_EXTRACT(v_senior_on, '$.total_fare') = 347.6, 'PASS', 'FAIL'),
+            'Senior concession is off in version 1 (BR-F7): it needs CONCESSION_SENIOR_ENABLED = true and an active rule.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- TEST 66: The four audit triggers - one UPDATE on each table writes exactly one AUDIT_LOG row with the right action
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_four_audit_triggers$$
+CREATE PROCEDURE test_four_audit_triggers()
+BEGIN
+    DECLARE v_fare INT;
+    DECLARE v_concession INT;
+    DECLARE v_refund_rule INT;
+    DECLARE v_setting INT;
+    DECLARE v_base INT;
+
+    START TRANSACTION;
+
+    SELECT COUNT(*) INTO v_base FROM AUDIT_LOG WHERE action = 'UPDATE_FARE_RATE';
+    UPDATE FARE SET rate_per_km = rate_per_km + 0.10 WHERE fare_id = 1;
+    SELECT COUNT(*) - v_base INTO v_fare FROM AUDIT_LOG WHERE action = 'UPDATE_FARE_RATE' AND table_name = 'FARE';
+
+    SELECT COUNT(*) INTO v_base FROM AUDIT_LOG WHERE action = 'UPDATE_CONCESSION_RULE';
+    UPDATE CONCESSION_RULE SET discount_pct = 30 WHERE rule_id = 8;
+    SELECT COUNT(*) - v_base INTO v_concession FROM AUDIT_LOG WHERE action = 'UPDATE_CONCESSION_RULE' AND table_name = 'CONCESSION_RULE';
+
+    SELECT COUNT(*) INTO v_base FROM AUDIT_LOG WHERE action = 'UPDATE_REFUND_RULE';
+    UPDATE REFUND_RULE SET deduction_pct = 30 WHERE class_id = 3 AND min_hours = 24;
+    SELECT COUNT(*) - v_base INTO v_refund_rule FROM AUDIT_LOG WHERE action = 'UPDATE_REFUND_RULE' AND table_name = 'REFUND_RULE';
+
+    SELECT COUNT(*) INTO v_base FROM AUDIT_LOG WHERE action = 'UPDATE_SETTING';
+    UPDATE SETTING SET setting_value = '0.12' WHERE setting_key = 'GST_RATE_AC';
+    SELECT COUNT(*) - v_base INTO v_setting FROM AUDIT_LOG WHERE action = 'UPDATE_SETTING' AND table_name = 'SETTING';
+
+    INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+    VALUES ('Audit Triggers: Each Of The 4 Writes One AUDIT_LOG Row',
+            'One new row each for FARE, CONCESSION_RULE, REFUND_RULE and SETTING',
+            CONCAT('FARE +', v_fare, ', CONCESSION_RULE +', v_concession, ', REFUND_RULE +', v_refund_rule, ', SETTING +', v_setting),
+            IF(v_fare = 1 AND v_concession = 1 AND v_refund_rule = 1 AND v_setting = 1, 'PASS', 'FAIL'),
+            'BR-A8: trg_audit_fare_change, trg_audit_concession_change, trg_audit_refund_rule_change and trg_audit_setting_change.');
+
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- test_reset_id_counters
+-- Rolled-back tests still move the AUTO_INCREMENT counters (a counter never goes back), and several older tests
+-- insert explicit ids such as 988801. This puts the six counters back to MAX + 1 after the whole suite has run.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_reset_id_counters$$
+CREATE PROCEDURE test_reset_id_counters()
+BEGIN
+    SET @id_next = (SELECT COALESCE(MAX(res_id), 0) + 1 FROM RESERVATION);
+    SET @id_sql = CONCAT('ALTER TABLE RESERVATION AUTO_INCREMENT = ', @id_next);
+    PREPARE id_stmt FROM @id_sql;
+    EXECUTE id_stmt;
+    DEALLOCATE PREPARE id_stmt;
+    SET @id_next = (SELECT COALESCE(MAX(payment_id), 0) + 1 FROM PAYMENT);
+    SET @id_sql = CONCAT('ALTER TABLE PAYMENT AUTO_INCREMENT = ', @id_next);
+    PREPARE id_stmt FROM @id_sql;
+    EXECUTE id_stmt;
+    DEALLOCATE PREPARE id_stmt;
+    SET @id_next = (SELECT COALESCE(MAX(refund_id), 0) + 1 FROM REFUND);
+    SET @id_sql = CONCAT('ALTER TABLE REFUND AUTO_INCREMENT = ', @id_next);
+    PREPARE id_stmt FROM @id_sql;
+    EXECUTE id_stmt;
+    DEALLOCATE PREPARE id_stmt;
+    SET @id_next = (SELECT COALESCE(MAX(cancel_id), 0) + 1 FROM CANCELLATION);
+    SET @id_sql = CONCAT('ALTER TABLE CANCELLATION AUTO_INCREMENT = ', @id_next);
+    PREPARE id_stmt FROM @id_sql;
+    EXECUTE id_stmt;
+    DEALLOCATE PREPARE id_stmt;
+    SET @id_next = (SELECT COALESCE(MAX(verify_id), 0) + 1 FROM TICKET_VERIFICATION);
+    SET @id_sql = CONCAT('ALTER TABLE TICKET_VERIFICATION AUTO_INCREMENT = ', @id_next);
+    PREPARE id_stmt FROM @id_sql;
+    EXECUTE id_stmt;
+    DEALLOCATE PREPARE id_stmt;
+    SET @id_next = (SELECT COALESCE(MAX(snapshot_id), 0) + 1 FROM CHART_SNAPSHOT);
+    SET @id_sql = CONCAT('ALTER TABLE CHART_SNAPSHOT AUTO_INCREMENT = ', @id_next);
+    PREPARE id_stmt FROM @id_sql;
+    EXECUTE id_stmt;
+    DEALLOCATE PREPARE id_stmt;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- BR-Q3 / BR-CB5: Tatkal needs an Aadhaar-verified account (online) or an Aadhaar ID proof (counter)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_tatkal_aadhaar_rule$$
+CREATE PROCEDURE test_tatkal_aadhaar_rule()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_err2 VARCHAR(32);
+    DECLARE v_pax_plain JSON;
+    DECLARE v_pax_aadhaar JSON;
+
+    SET v_pax_plain = JSON_ARRAY(JSON_OBJECT('saved_passenger_id', 7, 'name', 'Tatkal User', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH'));
+    SET v_pax_aadhaar = JSON_ARRAY(JSON_OBJECT('saved_passenger_id', 7, 'name', 'Tatkal User', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'concession_proof_type', 'AADHAAR', 'concession_proof_ref', 'XXXX-XXXX-1234', 'berth_preference', 'NO_BERTH'));
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
+
+    -- online, account NOT verified -> refused
+    UPDATE USER_ACCOUNT SET aadhaar_verified = 0 WHERE user_id = 50002;
+    CALL sp_create_booking(50002, 1001, 3, 1145, 1149, 'TATKAL', 0, 0, 0, v_pax_plain, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    -- online, account verified -> the Aadhaar rule no longer refuses
+    UPDATE USER_ACCOUNT SET aadhaar_verified = 1 WHERE user_id = 50002;
+    CALL sp_create_booking(50002, 1001, 3, 1145, 1149, 'TATKAL', 0, 0, 0, v_pax_plain, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err2);
+
+    IF v_err = 'AADHAAR_REQUIRED' AND COALESCE(v_err2, 'NONE') <> 'AADHAAR_REQUIRED' THEN
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Tatkal online needs an Aadhaar-verified account (BR-Q3)', 'AADHAAR_REQUIRED then allowed', CONCAT(v_err, ' then ', COALESCE(v_err2, 'OK')), 'PASS', 'Unverified account refused, verified account accepted.');
+    ELSE
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Tatkal online needs an Aadhaar-verified account (BR-Q3)', 'AADHAAR_REQUIRED then allowed', CONCAT(COALESCE(v_err, 'NONE'), ' then ', COALESCE(v_err2, 'OK')), 'FAIL', 'Tatkal Aadhaar rule not enforced as expected.');
+    END IF;
+
+    -- counter: no Aadhaar proof -> refused; with an Aadhaar proof on one passenger -> not refused for Aadhaar
+    SET v_err = NULL; SET v_err2 = NULL;
+    CALL sp_create_counter_booking(1, NULL, 1001, 3, 1145, 1149, 'TATKAL', v_pax_plain, 'CASH', 0, v_pnr, v_fare, v_stat, v_err);
+    CALL sp_create_counter_booking(1, NULL, 1001, 3, 1145, 1149, 'TATKAL', v_pax_aadhaar, 'CASH', 0, v_pnr, v_fare, v_stat, v_err2);
+    IF v_err = 'AADHAAR_REQUIRED' AND COALESCE(v_err2, 'NONE') <> 'AADHAAR_REQUIRED' THEN
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Tatkal at the counter needs an Aadhaar ID proof (BR-CB5)', 'AADHAAR_REQUIRED then allowed', CONCAT(v_err, ' then ', COALESCE(v_err2, 'OK')), 'PASS', 'Counter Tatkal without proof refused, with proof accepted.');
+    ELSE
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Tatkal at the counter needs an Aadhaar ID proof (BR-CB5)', 'AADHAAR_REQUIRED then allowed', CONCAT(COALESCE(v_err, 'NONE'), ' then ', COALESCE(v_err2, 'OK')), 'FAIL', 'Counter Tatkal Aadhaar rule not enforced as expected.');
+    END IF;
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- BR-B15: the monthly limit counts on the TEST CLOCK month. 12 tickets in September do not block a booking made on 17 October.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_monthly_limit_test_clock_month$$
+CREATE PROCEDURE test_monthly_limit_test_clock_month()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_cnt INT DEFAULT 0;
+    DECLARE v_pax JSON;
+
+    SET v_pax = JSON_ARRAY(JSON_OBJECT('saved_passenger_id', 7, 'name', 'Limit User', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH'));
+    DELETE FROM BOOKING WHERE pnr LIKE '88870000%';
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
+    UPDATE USER_ACCOUNT SET aadhaar_verified = 0 WHERE user_id = 50002;
+    WHILE v_cnt < 12 DO
+        INSERT INTO BOOKING (pnr, user_id, schedule_id, class_id, from_stop_id, to_stop_id, channel, quota, requested_quota, berth_condition, total_fare, status, created_at)
+        VALUES (CONCAT('88870000', LPAD(v_cnt, 2, '0')), 50002, 1001, 3, 1145, 1149, 'ONLINE', 'GENERAL', 'GENERAL', 0, 100.00, 'CONFIRMED', '2026-09-20 10:00:00');
+        SET v_cnt = v_cnt + 1;
+    END WHILE;
+    CALL sp_create_booking(50002, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_pax, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+
+    IF COALESCE(v_err, 'NONE') <> 'MONTHLY_LIMIT_EXCEEDED' THEN
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Monthly limit counts the test-clock month (September tickets do not block October)', 'not MONTHLY_LIMIT_EXCEEDED', COALESCE(v_err, 'OK'), 'PASS', 'fn_check_monthly_ticket_limit is called with COALESCE(@as_of_time, NOW()).');
+    ELSE
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Monthly limit counts the test-clock month (September tickets do not block October)', 'not MONTHLY_LIMIT_EXCEEDED', v_err, 'FAIL', 'The limit looked at the wrong month.');
+    END IF;
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+    DELETE FROM BOOKING WHERE pnr LIKE '88870000%';
+END$$
+
 DROP PROCEDURE IF EXISTS sp_run_all_tests$$
 CREATE PROCEDURE sp_run_all_tests()
 BEGIN
@@ -1771,6 +3522,43 @@ BEGIN
     CALL test_payment_hold_pay_late_promotes_waiting();
     CALL test_confirmed_booking_second_payment_refunded();
     CALL test_all_inventory_counters_match_real_counts();
+    CALL test_tdr_file_and_approve();
+    CALL test_tdr_double_filing_blocked();
+    CALL test_refund_cap_exceeds_payment();
+    CALL test_cancel_after_tdr_refund_blocked();
+    CALL test_booking_journey_past();
+    CALL test_booking_outside_window();
+    CALL test_booking_invalid_stops();
+    CALL test_tatkal_aadhaar_rule();
+    CALL test_monthly_limit_test_clock_month();
+    CALL test_ladies_quota_male_refused();
+    CALL test_senior_quota_underage_refused();
+    CALL test_divyaang_without_proof_refused();
+    CALL test_tdr_non_delay_before_run_refused();
+    CALL test_prepare_chart_error_surfaces();
+    CALL test_refund_created_pending();
+    CALL test_refund_result_transitions();
+    CALL test_failed_refund_counts_toward_cap();
+    CALL test_two_pending_refunds_cap();
+    CALL test_refund_view_processed_only();
+    CALL test_payment_order_transitions();
+    CALL test_payment_order_expired();
+    CALL test_payment_order_amount_check();
+    CALL test_rule_setting_changes_fare();
+    CALL test_rule_concession_changes_fare();
+    CALL test_rule_dynamic_fare_switch();
+    CALL test_rule_refund_rule_changes_charge();
+    CALL test_rule_bad_values_refused();
+    CALL test_rule_edit_writes_audit();
+    CALL test_auto_increment_ids();
+    CALL test_verify_ticket_cases();
+    CALL test_board_passenger_cases();
+    CALL test_noshow_cases();
+    CALL test_prepare_chart_snapshot_and_purge();
+    CALL test_concession_fare_cases();
+    CALL test_four_audit_triggers();
+
+    CALL test_reset_id_counters();
 
     SELECT test_id, test_name, expected_outcome, actual_outcome, status, details FROM test_results;
 END$$

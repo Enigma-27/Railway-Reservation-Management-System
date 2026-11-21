@@ -61,10 +61,22 @@ export interface ChartPassenger {
   pnr: string;
   passengerNo: number;
   passengerName: string;
+  // Real values from the booking (null when the server has none)
+  passengerAge: number | null;
+  passengerGender: string | null;
+  classType: string | null;
+  quota: string | null;
+  journeyDate: string | null;
+  trainId: number | null;
   coachNo: string;
   seatNo: number;
   berthType: string;
   status: string;
+  // Live state from the database (the chart is a frozen snapshot, these are not)
+  reservationStatus?: string | null;
+  verificationResult?: 'VALID' | 'INVALID' | 'MISMATCH' | null;
+  verificationRemarks?: string | null;
+  verifiedAt?: string | null;
   fromStationId: number;
   fromStationCode: string;
   toStationId: number;
@@ -102,6 +114,8 @@ export interface PnrBookingDetails {
     coachNumber: string | null;
     seatNumber: number | null;
     berthType: string | null;
+    concessionType?: string;
+    verification?: { result: 'VALID' | 'INVALID' | 'MISMATCH'; remarks: string; verifiedAt: string } | null;
   }>;
 }
 
@@ -223,7 +237,50 @@ export const staffApiService = {
 
   // 3. Passenger Chart Manifest
   async getScheduleChart(scheduleId: number): Promise<ChartPassenger[]> {
-    return request<ChartPassenger[]>(`/api/staff/schedules/${scheduleId}/chart`);
+    // 200 with chartPrepared:false and an empty list when the chart does not exist yet (not an error)
+    const token = localStorage.getItem(API_CONFIG.STORAGE_KEYS.STAFF_TOKEN) || localStorage.getItem(API_CONFIG.STORAGE_KEYS.TOKEN);
+    const res = await fetch(`${API_CONFIG.BASE_URL}/api/staff/schedules/${scheduleId}/chart`, { headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) throw new StaffApiError(body?.error?.code || `HTTP_${res.status}`, body?.error?.message || 'Request failed', body?.error?.details);
+    if (body.chartPrepared === false) return null as any;
+    return body.data as ChartPassenger[];
+  },
+
+  // 3b. Public reference data (stations, train route) and the live status of a run
+  async getStations(): Promise<Array<{ stationId: number; stationCode: string; stationName: string; city?: string; state?: string }>> {
+    return request('/api/stations');
+  },
+
+  async getTrain(trainId: number): Promise<{
+    trainId: number;
+    trainNumber: string;
+    displayName: string;
+    trainType: string;
+    sourceStationId: number;
+    destinationStationId: number;
+    runningDays: string[];
+    route: Array<{
+      stopId: number;
+      stationId: number;
+      stopSequence: number;
+      arrivalTime: string;
+      departureTime: string;
+      distanceFromOriginKm: number;
+      platformNo: number;
+    }>;
+  }> {
+    return request(`/api/trains/${trainId}`);
+  },
+
+  async getLiveStatus(scheduleId: number): Promise<{
+    scheduleId: number;
+    trainId: number;
+    journeyDate: string;
+    status: string;
+    delayMinutes: number;
+    platformNumber: number;
+  }> {
+    return request(`/api/schedules/${scheduleId}/live-status`);
   },
 
   // 4. Ticket Scanner & PNR Verification

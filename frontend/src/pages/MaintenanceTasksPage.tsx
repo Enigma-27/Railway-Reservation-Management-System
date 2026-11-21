@@ -2,13 +2,15 @@ import React, { useState } from 'react';
 import { useStaff } from '../context/StaffContext';
 import { Wrench, CheckCircle, Clock, AlertTriangle, PlusCircle, Loader2 } from 'lucide-react';
 import { StatusBadge } from '../components/StatusBadge';
+import { nowIndiaDateTime } from '../utils/formatters';
 
 interface MaintenanceTaskItem {
   maintId: number;
   title: string;
   description: string;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  // The only values the database accepts (MAINTENANCE.status)
+  status: 'OPEN' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   coachId?: number;
   assignedStaffId?: number;
   createdAt: string;
@@ -20,67 +22,57 @@ export const MaintenanceTasksPage: React.FC = () => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('MEDIUM');
-  const [coachId, setCoachId] = useState<number>(301);
+  const [coachId, setCoachId] = useState<string>('');
+  // The server accepts only these task types (MAINTENANCE.type)
+  const [taskType, setTaskType] = useState<string>('INSPECTION');
   const [creating, setCreating] = useState(false);
-  const [taskList, setTaskList] = useState<MaintenanceTaskItem[]>([
-    {
-      maintId: 101,
-      title: 'AC B1 Compressor Pressure Inspection',
-      description: 'Periodic vibration test and coolant pressure verification before departure.',
-      priority: 'HIGH',
-      status: 'IN_PROGRESS',
-      coachId: 301,
-      assignedStaffId: activeStaff.staffId,
-      createdAt: '2026-10-25T14:30:00Z'
-    },
-    {
-      maintId: 102,
-      title: 'B2 Coach Automatic Door Sensor Alignment',
-      description: 'Sensor obstruction alarm triggered during platform docking.',
-      priority: 'MEDIUM',
-      status: 'SCHEDULED',
-      coachId: 302,
-      assignedStaffId: activeStaff.staffId,
-      createdAt: '2026-10-25T15:10:00Z'
-    }
-  ]);
+  // Only jobs created in this session and accepted by the server. The server has no list route for staff.
+  const [taskList, setTaskList] = useState<MaintenanceTaskItem[]>([]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !description.trim() || creating) return;
+    const coachIdNumber = Number(coachId);
+    if (!title.trim() || !description.trim() || !(coachIdNumber > 0) || creating) return;
 
     setCreating(true);
     try {
       const res = await createMaintenanceTask({
-        coachId,
+        coachId: coachIdNumber,
+        type: taskType,
         stationId: activeStaff.assignedStationId || undefined,
         title: title.trim(),
         description: description.trim(),
         priority
       });
 
-      const newTask: MaintenanceTaskItem = {
-        maintId: res.maintId || Date.now(),
-        title: title.trim(),
-        description: description.trim(),
-        priority,
-        status: 'SCHEDULED',
-        coachId,
-        assignedStaffId: activeStaff.staffId,
-        createdAt: new Date().toISOString()
-      };
-
-      setTaskList(prev => [newTask, ...prev]);
-      setTitle('');
-      setDescription('');
+      // Add to the list only if the server accepted the job and gave it a real id
+      if (res.success && res.maintId) {
+        const newTask: MaintenanceTaskItem = {
+          maintId: res.maintId,
+          title: title.trim(),
+          description: description.trim(),
+          priority,
+          status: 'OPEN',
+          coachId: coachIdNumber,
+          assignedStaffId: activeStaff.staffId,
+          createdAt: nowIndiaDateTime()
+        };
+        setTaskList(prev => [newTask, ...prev]);
+        setTitle('');
+        setDescription('');
+        setCoachId('');
+      }
     } finally {
       setCreating(false);
     }
   };
 
-  const handleStatusUpdate = async (maintId: number, status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED') => {
-    await updateMaintenanceStatus(maintId, status, `Updated by staff ${activeStaff.name}`);
-    setTaskList(prev => prev.map(t => t.maintId === maintId ? { ...t, status } : t));
+  const handleStatusUpdate = async (maintId: number, status: 'OPEN' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED') => {
+    const result = await updateMaintenanceStatus(maintId, status, `Updated by staff ${activeStaff.name}`);
+    // Change the row only after the server accepted the new status
+    if (result.success) {
+      setTaskList(prev => prev.map(t => t.maintId === maintId ? { ...t, status } : t));
+    }
   };
 
   return (
@@ -111,6 +103,34 @@ export const MaintenanceTasksPage: React.FC = () => {
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Washroom flush valve replacement"
                 className="w-full bg-white border border-slate-200 focus:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600 block mb-1">Task Type *</label>
+              <select
+                value={taskType}
+                onChange={(e) => setTaskType(e.target.value)}
+                className="w-full bg-white border border-slate-200 focus:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 outline-none cursor-pointer"
+              >
+                <option value="CLEANING">CLEANING</option>
+                <option value="REPAIR">REPAIR</option>
+                <option value="AC_SERVICE">AC_SERVICE</option>
+                <option value="INSPECTION">INSPECTION</option>
+                <option value="SAFETY_CHECK">SAFETY_CHECK</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600 block mb-1">Coach ID *</label>
+              <input
+                type="number"
+                required
+                min={1}
+                value={coachId}
+                onChange={(e) => setCoachId(e.target.value)}
+                placeholder="Coach id from the coach master"
+                className="w-full bg-white border border-slate-200 focus:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 outline-none font-mono"
               />
             </div>
 
@@ -179,6 +199,13 @@ export const MaintenanceTasksPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
+              {taskList.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
+                    No jobs created in this session. Jobs you create are saved on the server; the server does not give officers a list of older jobs.
+                  </td>
+                </tr>
+              )}
               {taskList.map(task => (
                 <tr key={task.maintId} className="hover:bg-slate-50/80 transition-colors">
                   <td className="py-3 px-4 font-mono font-bold text-slate-700">#{task.maintId}</td>

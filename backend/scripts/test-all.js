@@ -1,7 +1,7 @@
 /**
  * Railway Reservation System - Master Test Runner (test-all)
  * Runs all test suites sequentially with clean quiet DB reloads between suites:
- * test:d1, test:d2, test:d3a, test:d3b1, test:d3b2, test:d3b3, test:d3c1, test:d3c2
+ * test:d1, test:d2, test:d3a, test:d3b1, test:d3b2, test:d3b3, test:d3c1, test:d3c2, test:d3c3, test:d4, test:d5, test:d6
  */
 
 const path = require('path');
@@ -20,7 +20,9 @@ const SUITES = [
   { name: 'test:d3c1', script: 'scripts/test-d3c1.js', desc: 'Chart Prep, Settings, Maintenance & Manifest' },
   { name: 'test:d3c2', script: 'scripts/test-d3c2.js', desc: 'Fines, Incidents, Live Reports, Reports & Staff' },
   { name: 'test:d3c3', script: 'scripts/test-d3c3.js', desc: 'Mongo Features, Admin Master Data & Refused Rules' },
-  { name: 'test:d4', script: 'scripts/test-d4.js', desc: 'Daily Operations Simulator & Idempotency' }
+  { name: 'test:d4', script: 'scripts/test-d4.js', desc: 'Daily Operations Simulator & Idempotency' },
+  { name: 'test:d5', script: 'scripts/test-d5.js', desc: 'Live Trains, Booking Rules, Payment Fixes, TDR Eligibility' },
+  { name: 'test:d6', script: 'scripts/test-d6.js', desc: 'Short Logins, Public PNR, Admin Delay, Rule Gaps, Analytics, Demo Clear' }
 ];
 
 function runQuietly(cmd, args, cwd, timeout = 120000) {

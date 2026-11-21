@@ -1,10 +1,15 @@
-import { API_CONFIG, isServiceMock } from '../config/api.config';
+import { isServiceMock } from '../config/api.config';
 import { ScheduleStatus } from '../constants/enums';
 import { Schedule } from '../types/schedule';
 import { httpRequest } from './http.client';
 import { mockStore, simulateLatency } from './mock.client';
 
 export const scheduleService = {
+  /** Admin: set (minutes > 0) or clear (0) the delay of a run. POST /api/admin/schedules/:id/delay, audited. */
+  async setDelay(scheduleId: number, delayMinutes: number, reason = ''): Promise<{ scheduleId: number; delayMinutes: number; status: string }> {
+    return httpRequest(`/api/admin/schedules/${scheduleId}/delay`, { method: 'POST', body: JSON.stringify({ delayMinutes, reason }) });
+  },
+
   async getSchedules(
     filters?: {
       from_date?: string;
@@ -58,7 +63,7 @@ export const scheduleService = {
 
 
   async createSchedule(payload: Omit<Schedule, 'scheduleId'>): Promise<Schedule> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('schedules')) {
       await simulateLatency();
       const list = mockStore.getSchedules();
       const newId = Math.max(...list.map((s) => s.scheduleId), 0) + 1;
@@ -84,7 +89,7 @@ export const scheduleService = {
   },
 
   async updateSchedule(scheduleId: number, payload: Partial<Omit<Schedule, 'scheduleId'>>): Promise<Schedule> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('schedules')) {
       await simulateLatency();
       const list = mockStore.getSchedules();
       const idx = list.findIndex((s) => s.scheduleId === scheduleId);
@@ -118,7 +123,7 @@ export const scheduleService = {
   },
 
   async deleteSchedule(scheduleId: number): Promise<void> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('schedules')) {
       await simulateLatency();
       const list = mockStore.getSchedules();
       const target = list.find((s) => s.scheduleId === scheduleId);
@@ -155,11 +160,10 @@ export const scheduleService = {
     totalConfirmed?: number;
     summary?: {
       activeHoldsCancelled: number;
-      unusedQuotaSeatsReleased: number;
-      autoUpgradesProcessed: number;
-      oldClassPromotionsTriggered: number;
       waitlistedPassengersCancelled: number;
       totalRefundsDisbursed: number;
+      totalRefundsPending?: number;
+      totalRefundsFailed?: number;
       chartSnapshotRowsPersisted: number;
     };
   }> {
@@ -171,9 +175,6 @@ export const scheduleService = {
         alreadyPrepared: false,
         summary: {
           activeHoldsCancelled: 1,
-          unusedQuotaSeatsReleased: 4,
-          autoUpgradesProcessed: 2,
-          oldClassPromotionsTriggered: 2,
           waitlistedPassengersCancelled: 2,
           totalRefundsDisbursed: 1400.0,
           chartSnapshotRowsPersisted: 42,
@@ -204,9 +205,6 @@ export const scheduleService = {
       status: 'CHART_PREPARED',
       summary: res?.summary || {
         activeHoldsCancelled: 0,
-        unusedQuotaSeatsReleased: 0,
-        autoUpgradesProcessed: 0,
-        oldClassPromotionsTriggered: 0,
         waitlistedPassengersCancelled: 0,
         totalRefundsDisbursed: 0,
         chartSnapshotRowsPersisted: 0,

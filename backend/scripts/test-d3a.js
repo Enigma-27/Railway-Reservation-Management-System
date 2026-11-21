@@ -87,16 +87,16 @@ async function runTests() {
 
     // Login Passenger 1 (Rahul Sharma - 50001)
     const p1Login = await request('POST', '/api/auth/passenger/login', {
-      email: 'rahul.sharma@example.com',
-      password: 'Password123!'
+      email: 'passenger@rrms.in',
+      password: 'Demo@123'
     });
     assert(p1Login.status === 200, 'Passenger 1 (Rahul Sharma) logged in successfully');
     const token1 = p1Login.data.data.token;
 
     // Login Passenger 2 (Priya Patel - 50002)
     const p2Login = await request('POST', '/api/auth/passenger/login', {
-      email: 'priya.patel@example.com',
-      password: 'Password123!'
+      email: 'chain@rrms.in',
+      password: 'Demo@123'
     });
     assert(p2Login.status === 200, 'Passenger 2 (Priya Patel) logged in successfully');
     const token2 = p2Login.data.data.token;
@@ -104,7 +104,7 @@ async function runTests() {
     // Login Staff (Vikram Singh - EMP-TC-101)
     const staffLogin = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin.status === 200, 'Staff (EMP-TC-101) logged in successfully');
     const staffToken = staffLogin.data.data.token;
@@ -213,6 +213,10 @@ async function runTests() {
     assert(Array.isArray(cancel1Res.data.data.refundIds) && cancel1Res.data.data.refundIds.length === 1, 'refundIds array returned with 1 ID');
     assert(typeof cancel1Res.data.data.promotionTriggered === 'boolean', 'promotionTriggered is boolean');
     assert(cancel1Res.data.data.gatewayRefund === 'SKIPPED', 'Test 3 gatewayRefund is SKIPPED');
+    {
+      const [skipRow] = await pool.query('SELECT status, failure_reason FROM REFUND WHERE refund_id = ?', [cancel1Res.data.data.refundIds[0]]);
+      assert(skipRow[0].status === 'PROCESSED' && skipRow[0].failure_reason === 'SIMULATED_PAYMENT', 'Test 3 refund row is PROCESSED with the note SIMULATED_PAYMENT (no real money moved)');
+    }
 
     // Database verification: passenger 1 is CANCELLED, passenger 2 is CONFIRMED, booking remains CONFIRMED
     const [dbRes3] = await pool.query('SELECT passenger_no, status, seat_id FROM RESERVATION WHERE pnr = ? ORDER BY passenger_no', [b3.pnr]);
@@ -320,6 +324,10 @@ async function runTests() {
     const cancelCounterRes = await request('POST', `/api/bookings/${counterPnr}/cancel`, {}, staffToken);
     assert(cancelCounterRes.status === 200, 'Staff counter cancellation returns HTTP 200 OK');
     assert(cancelCounterRes.data.data.gatewayRefund === 'SKIPPED', 'CASH payment gatewayRefund is SKIPPED');
+    {
+      const [cashRow] = await pool.query('SELECT status, failure_reason FROM REFUND WHERE refund_id = ?', [cancelCounterRes.data.data.refundIds[0]]);
+      assert(cashRow[0].status === 'PROCESSED' && cashRow[0].failure_reason === 'CASH_PAYMENT_NO_GATEWAY', 'CASH refund row is PROCESSED with the note CASH_PAYMENT_NO_GATEWAY');
+    }
     assert(cancelCounterRes.data.data.cancelIds.length === 1, 'Counter cancelId created');
     assert(cancelCounterRes.data.data.refundIds.length === 1, 'Counter refundId created');
 
@@ -438,26 +446,11 @@ async function runTests() {
     // TEST 11: SIMULATED RAZORPAY STUB IDEMPOTENCY TEST
     // -------------------------------------------------------------------------
     console.log('\n--- TEST 11: SIMULATED Razorpay Stub Multi-Passenger Partial Cancel & Idempotency ---');
-    const { setRazorpayClientOverride, toPaise, processGatewayRefund } = require('../src/services/gatewayRefundService');
+    const { setRazorpayClientOverride, toPaise, processRefundById } = require('../src/services/gatewayRefundService');
 
-    const stubRefundCalls = [];
-    const mockRazorpayClient = {
-      payments: {
-        refund: async (paymentId, options) => {
-          stubRefundCalls.push({ paymentId, options });
-          return {
-            id: `rfnd_sim_${Date.now()}_${stubRefundCalls.length}`,
-            entity: 'refund',
-            amount: options.amount,
-            currency: 'INR',
-            payment_id: paymentId,
-            status: 'processed'
-          };
-        }
-      }
-    };
-
-    setRazorpayClientOverride(mockRazorpayClient);
+    // The shared mock gateway answers refund and fetchMultipleRefund calls and records every refund call
+    const mockGateway = require('./helpers/mockRazorpay').install();
+    const stubRefundCalls = mockGateway.state.calls;
 
     try {
       // Real Razorpay shape payment ID (pay_ + 14 alphanumeric chars) to trigger mock client in Test 11
@@ -470,32 +463,28 @@ async function runTests() {
       // Step 1: Cancel passenger 1
       const cancelP1Res = await request('POST', `/api/bookings/${bStub.pnr}/cancel`, { passengerNos: [1] }, token1);
       assert(cancelP1Res.status === 200, 'Cancel passenger 1 returns HTTP 200 OK');
-      assert(cancelP1Res.data.data.gatewayRefund === 'SUCCESS', 'Passenger 1 gatewayRefund is SUCCESS');
+      // SQL wrote the refund as PENDING; the refund service moved it to PROCESSED after the (mock) gateway answered
+      assert(cancelP1Res.data.data.gatewayRefund === 'PROCESSED', 'Passenger 1 gatewayRefund is PROCESSED');
+      assert(cancelP1Res.data.data.refund.status === 'PROCESSED', 'Passenger 1 refund status is PROCESSED after the gateway call');
       assert(stubRefundCalls.length === 1, 'Exactly ONE refund call made to simulated Razorpay stub');
       assert(stubRefundCalls[0].options.amount === toPaise(cancelP1Res.data.data.refundAmount), 'First refund call has exact paise amount');
+      assert(String(stubRefundCalls[0].options.notes.refund_id) === String(cancelP1Res.data.data.refundIds[0]), 'First refund call carries the REFUND row id in its notes');
       const p1RefundId = cancelP1Res.data.data.refundIds[0];
 
       // Step 2: Cancel passenger 2 on the SAME payment
       const cancelP2Res = await request('POST', `/api/bookings/${bStub.pnr}/cancel`, { passengerNos: [2] }, token1);
       assert(cancelP2Res.status === 200, 'Cancel passenger 2 returns HTTP 200 OK');
-      assert(cancelP2Res.data.data.gatewayRefund === 'SUCCESS', 'Passenger 2 gatewayRefund is SUCCESS');
+      assert(cancelP2Res.data.data.gatewayRefund === 'PROCESSED', 'Passenger 2 gatewayRefund is PROCESSED');
       assert(stubRefundCalls.length === 2, 'Exactly TWO refund calls made for separate passenger cancellations on the same payment');
       assert(stubRefundCalls[1].options.amount === toPaise(cancelP2Res.data.data.refundAmount), 'Second refund call has exact paise amount for passenger 2');
       const p2RefundId = cancelP2Res.data.data.refundIds[0];
+      assert(p1RefundId !== p2RefundId, 'Each passenger cancel has its own REFUND row id');
 
-      // Step 3: Repeat the exact same refund request for passenger 2 (simulating gateway retry)
-      const repeatRefundRes = await processGatewayRefund({
-        pnr: bStub.pnr,
-        paymentMethod: 'UPI',
-        gatewayPaymentId: bStub.simPaymentId,
-        amountInRupees: cancelP2Res.data.data.refundAmount,
-        refundIds: [p2RefundId],
-        reason: 'CANCELLATION'
-      });
-
-      assert(repeatRefundRes.status === 'SUCCESS', 'Repeated refund call returns SUCCESS status');
-      assert(repeatRefundRes.isIdempotent === true, 'Repeated refund call is detected as idempotent from MongoDB');
-      assert(stubRefundCalls.length === 2, 'No third call dispatched to simulated Razorpay stub (idempotent duplicate avoided)');
+      // Step 3: Run the refund service again for the same REFUND row (simulating a gateway retry)
+      const repeatRefundRes = await processRefundById(p2RefundId);
+      assert(repeatRefundRes.refundStatus === 'PROCESSED', 'Repeated refund call leaves the row PROCESSED');
+      assert(repeatRefundRes.outcome === 'ALREADY_PROCESSED', 'Repeated refund call is recognised as already done from the REFUND row (MySQL)');
+      assert(stubRefundCalls.length === 2, 'No third call dispatched to simulated Razorpay stub (duplicate avoided)');
     } finally {
       setRazorpayClientOverride(null);
     }

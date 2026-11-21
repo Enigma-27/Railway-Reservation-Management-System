@@ -1,0 +1,663 @@
+<!-- Passenger pages + modals, from the old standalone passenger index.html. The shell (sidebar, top bar) is now the React portal shell. -->
+<div id="dashboard-container" class="dashboard-container">
+<div class="main-content">
+<main class="content-area" id="content-area">
+
+      <!-- ══════════════════════════════════════════ HOME PAGE -->
+      <div id="page-home" class="page active">
+        <div class="welcome-section">
+          <div class="welcome-text">
+            <h1 class="welcome-title">Good <span id="time-greeting">evening</span>, <span id="welcome-name">Rahul</span>! 👋</h1>
+            <p class="welcome-sub">Ready for your next journey?</p>
+          </div>
+          <div class="welcome-actions">
+            <button class="btn-primary" onclick="navigateTo('search')">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+              Book a Ticket
+            </button>
+          </div>
+        </div>
+
+        <!-- STATS CARDS -->
+        <div class="stats-grid" id="home-stats"></div>
+
+        <!-- QUICK SEARCH -->
+        <div class="quick-search-card">
+          <h2 class="section-title">Quick Train Search</h2>
+          <div class="quick-search-form">
+            <div class="search-row">
+              <div class="form-group flex-1">
+                <label class="form-label" for="qs-from">From Station</label>
+                <select class="form-select" id="qs-from"></select>
+              </div>
+              <button class="swap-btn" onclick="swapQuickSearch()" title="Swap stations" aria-label="Swap stations">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path d="M8 5a1 1 0 100 2h5.586l-1.293 1.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L13.586 5H8zM12 15a1 1 0 100-2H6.414l1.293-1.293a1 1 0 10-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L6.414 15H12z"/></svg>
+              </button>
+              <div class="form-group flex-1">
+                <label class="form-label" for="qs-to">To Station</label>
+                <select class="form-select" id="qs-to"></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="qs-date">Journey Date</label>
+                <input type="date" class="form-input" id="qs-date" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="qs-class">Class</label>
+                <select class="form-select" id="qs-class">
+                  <option value="">Any Class</option>
+                  <option value="1A">1A - First AC</option>
+                  <option value="2A">2A - Second AC</option>
+                  <option value="3A" selected>3A - Third AC</option>
+                  <option value="SL">SL - Sleeper</option>
+                  <option value="CC">CC - Chair Car</option>
+                  <option value="EC">EC - Exec Chair</option>
+                </select>
+              </div>
+              <button class="btn-primary search-go-btn" onclick="goToSearch()">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+                Search
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RECENT BOOKINGS -->
+        <div class="section-block">
+          <div class="section-header">
+            <h2 class="section-title">Recent Bookings</h2>
+            <button class="btn-text-sm" onclick="navigateTo('bookings')">View All →</button>
+          </div>
+          <div id="recent-bookings-list" class="booking-cards-grid"></div>
+        </div>
+
+        <!-- ANNOUNCEMENTS -->
+        <div class="section-block">
+          <h2 class="section-title">📢 Alerts & Announcements</h2>
+          <div class="alert-list" id="home-alerts"></div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════ BOOK TICKETS / SEARCH -->
+      <div id="page-search" class="page">
+        <div class="page-header">
+          <h1 class="page-title">Book Tickets</h1>
+          <p class="page-sub">Search and book train tickets across India</p>
+        </div>
+
+        <!-- STEP INDICATOR -->
+        <div class="booking-steps" id="booking-steps">
+          <div class="step active" id="step-1"><span class="step-num">1</span><span class="step-label">Search</span></div>
+          <div class="step-line"></div>
+          <div class="step" id="step-2"><span class="step-num">2</span><span class="step-label">Select</span></div>
+          <div class="step-line"></div>
+          <div class="step" id="step-3"><span class="step-num">3</span><span class="step-label">Passengers</span></div>
+          <div class="step-line"></div>
+          <div class="step" id="step-4"><span class="step-num">4</span><span class="step-label">Summary</span></div>
+          <div class="step-line"></div>
+          <div class="step" id="step-5"><span class="step-num">5</span><span class="step-label">Payment</span></div>
+          <div class="step-line"></div>
+          <div class="step" id="step-6"><span class="step-num">6</span><span class="step-label">Confirm</span></div>
+        </div>
+
+        <!-- STEP 1: SEARCH FORM -->
+        <div id="booking-step-1" class="booking-step active">
+          <div class="search-card">
+            <form onsubmit="handleSearchTrains(event)">
+              <div class="search-grid">
+                <div class="form-group">
+                  <label class="form-label" for="search-from">From Station *</label>
+                  <select class="form-select" id="search-from" required></select>
+                </div>
+                <div class="form-group" style="display:flex;align-items:center;justify-content:center;margin-top:24px;">
+                  <button type="button" class="swap-btn large" onclick="swapSearchStations()" aria-label="Swap stations">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path d="M8 5a1 1 0 100 2h5.586l-1.293 1.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L13.586 5H8zM12 15a1 1 0 100-2H6.414l1.293-1.293a1 1 0 10-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L6.414 15H12z"/></svg>
+                  </button>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="search-to">To Station *</label>
+                  <select class="form-select" id="search-to" required></select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="search-date">Journey Date *</label>
+                  <input type="date" class="form-input" id="search-date" required />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="search-class">Class Preference</label>
+                  <select class="form-select" id="search-class">
+                    <option value="">Any Class</option>
+                    <option value="1A">1A - First AC</option>
+                    <option value="2A">2A - Second AC</option>
+                    <option value="3A">3A - Third AC</option>
+                    <option value="SL">SL - Sleeper</option>
+                    <option value="CC">CC - Chair Car</option>
+                    <option value="EC">EC - Executive Chair</option>
+                    <option value="2S">2S - Second Sitting</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="search-quota">Quota</label>
+                  <select class="form-select" id="search-quota">
+                    <option value="GENERAL">General</option>
+                    <option value="TATKAL">Tatkal</option>
+                    <option value="LADIES">Ladies</option>
+                    <option value="DIVYAANG">Divyaang</option>
+                    <option value="SENIOR_CITIZEN">Senior Citizen</option>
+                  </select>
+                </div>
+              </div>
+              <div class="search-footer">
+                <button type="submit" class="btn-primary btn-large" id="search-trains-btn">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+                  Search Trains
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- STEP 2: SEARCH RESULTS -->
+        <div id="booking-step-2" class="booking-step">
+          <div class="results-header">
+            <button class="btn-back" onclick="goToStep(1)">← Modify Search</button>
+            <div class="results-summary" id="results-summary"></div>
+          </div>
+          <div id="train-results" class="train-results-list"></div>
+        </div>
+
+        <!-- STEP 3: WHO IS TRAVELLING (logic in passenger-step.js) -->
+        <div id="booking-step-3" class="booking-step">
+          <div class="results-header">
+            <button class="btn-back" onclick="goToStep(2)">← Back to Results</button>
+            <h2 class="step-title">Who is travelling?</h2>
+          </div>
+          <p id="pax-booking-as" class="pax-lead"></p>
+          <div class="step3-layout">
+            <div class="passengers-section">
+              <div class="hold-lock-notice hidden" id="hold-lock-notice">
+                <div id="hold-lock-text"></div>
+                <button type="button" class="btn-secondary-sm" onclick="startOverBooking()">Start over</button>
+              </div>
+
+              <div class="card">
+                <div class="card-header"><h3>Rules for this booking</h3></div>
+                <div id="pax-rules"></div>
+              </div>
+
+              <div class="card" id="saved-card" style="margin-top:16px;">
+                <div class="card-header"><h3>Saved passengers</h3></div>
+                <div id="saved-pax-list"></div>
+              </div>
+
+              <div class="card" id="np-card" style="margin-top:16px;">
+                <div class="card-header"><h3>Add new passenger</h3></div>
+                <form id="np-form" novalidate>
+                  <div class="pax-form-grid">
+                    <label class="pax-field">Full name *
+                      <input type="text" class="form-input" id="np-name" maxlength="128" autocomplete="off" placeholder="As on the ID proof">
+                    </label>
+                    <label class="pax-field">Age (years) *
+                      <input type="number" class="form-input" id="np-age" min="0" max="125" inputmode="numeric">
+                    </label>
+                    <label class="pax-field">Gender *
+                      <select class="form-select" id="np-gender">
+                        <option value="MALE">Male</option>
+                        <option value="FEMALE">Female</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                    </label>
+                    <label class="pax-field">Berth preference
+                      <select class="form-select" id="np-berth"></select>
+                    </label>
+                    <label class="pax-field pax-wide">Concession category
+                      <select class="form-select" id="np-concession"></select>
+                      <span class="pax-meta" id="np-conc-desc"></span>
+                    </label>
+                    <div class="pax-wide pax-form-grid" id="np-proof-row" hidden>
+                      <label class="pax-field">Proof type *
+                        <select class="form-select" id="np-id-type"></select>
+                      </label>
+                      <label class="pax-field">Proof number *
+                        <input type="text" class="form-input" id="np-id-ref" maxlength="64" autocomplete="off">
+                      </label>
+                    </div>
+                    <label class="pax-field pax-wide" id="np-disability-row" hidden>Disability type (kept if you save this traveller)
+                      <select class="form-select" id="np-disability">
+                        <option value="ORTHOPEDIC">Orthopedic</option>
+                        <option value="VISUAL">Visual</option>
+                        <option value="HEARING">Hearing</option>
+                        <option value="MENTAL">Mental</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label class="pax-check">
+                    <input type="checkbox" id="np-save">
+                    <span>Save for next time</span>
+                  </label>
+                  <div class="pax-form-grid pax-wide" id="np-save-id-row" hidden>
+                    <p class="pax-meta pax-wide">A saved traveller keeps one general ID. Enter it here (the concession proof above is used for this booking only).</p>
+                    <label class="pax-field">ID type *
+                      <select class="form-select" id="np-save-id-type"></select>
+                    </label>
+                    <label class="pax-field">ID number *
+                      <input type="text" class="form-input" id="np-save-id-ref" maxlength="64" autocomplete="off">
+                    </label>
+                  </div>
+                  <ul class="pax-form-errors" id="np-errors" role="alert" hidden></ul>
+                  <button type="submit" class="btn-primary" id="np-add-btn">Add traveller</button>
+                </form>
+              </div>
+
+              <div class="card" style="margin-top:16px;">
+                <div class="card-header"><h3 id="selected-pax-title">Travellers on this booking (0 of 6)</h3></div>
+                <div id="selected-pax-list"></div>
+                <div id="pax-problems" hidden></div>
+              </div>
+
+              <div class="card" style="margin-top:16px;">
+                <div class="card-header"><h3>Booking Preferences</h3></div>
+                <div class="preferences-grid">
+                  <label class="toggle-option">
+                    <input type="checkbox" id="pref-berth-condition" />
+                    <span class="toggle-label">
+                      <strong>Berth Condition</strong>
+                      <small>Book only if preferred berth type is assigned</small>
+                    </span>
+                  </label>
+                  <label class="toggle-option" id="fallback-consent-container" style="display:none;">
+                    <input type="checkbox" id="pref-fallback-consent" checked />
+                    <span class="toggle-label">
+                      <strong>General Quota Fallback</strong>
+                      <small>Consent to book in General Quota if Ladies Quota is exhausted</small>
+                    </span>
+                  </label>
+                  <div class="info-option">
+                    <strong>Travel insurance: included in the fare</strong>
+                    <small>The exact amount is shown in the fare lines.</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="booking-sidebar-info">
+              <div class="card journey-card">
+                <h3>Journey Details</h3>
+                <div id="selected-journey-info"></div>
+                <div class="hold-timer hidden" id="hold-timer">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                  Seat Hold: <span id="hold-countdown">10:00</span>
+                </div>
+              </div>
+              <div class="card" style="margin-top:12px;">
+                <h3>Fare preview</h3>
+                <div id="fare-preview-box"></div>
+              </div>
+              <button class="btn-primary btn-full" id="pax-proceed-btn" onclick="proceedToSummary()" style="margin-top:12px;">
+                Proceed to Summary →
+              </button>
+              <p class="pax-note" id="pax-proceed-hint" role="status"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 4: BOOKING SUMMARY -->
+        <div id="booking-step-4" class="booking-step">
+          <div class="results-header">
+            <button class="btn-back" onclick="goToStep(3)">← Back</button>
+            <h2 class="step-title">Booking Summary</h2>
+          </div>
+          <div class="summary-layout">
+            <div class="summary-main">
+              <div class="card" id="summary-journey-card"></div>
+              <div class="card" id="summary-passengers-card" style="margin-top:16px;"></div>
+            </div>
+            <div class="summary-sidebar">
+              <div class="card fare-card">
+                <h3>Fare Breakdown</h3>
+                <div id="fare-breakdown"></div>
+                <div class="hold-timer" id="hold-timer-4">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                  Seat Hold: <span id="hold-countdown-4">10:00</span>
+                </div>
+              </div>
+              <button class="btn-primary btn-full" onclick="goToStep(5)" style="margin-top:12px;">
+                Proceed to Payment →
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 5: PAYMENT -->
+        <div id="booking-step-5" class="booking-step">
+          <div class="results-header">
+            <button class="btn-back" onclick="goToStep(4)">← Back</button>
+            <h2 class="step-title">Payment Gateway</h2>
+          </div>
+          <div class="payment-layout">
+            <div class="card payment-card">
+              <h3>Pay for PNR <span id="pay-pnr-label"></span></h3>
+              <p class="pay-test-note" style="margin-top:0;">You choose how to pay (UPI, Net Banking or card) in the secure Razorpay window that opens when you press the button.</p>
+              <div class="hold-timer hidden" id="hold-timer-5">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                Seat Hold: <span id="hold-countdown-5">10:00</span>
+              </div>
+
+              <div id="payment-final-notice"></div>
+
+              <div class="payment-amount-box">
+                <span>Total Amount</span>
+                <span class="amount-large" id="payment-total-amount">₹3,840.50</span>
+              </div>
+
+              <button class="btn-primary btn-full btn-large" onclick="processPaymentFlow()" id="pay-now-btn">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+                Pay now
+              </button>
+              <p class="pay-test-note" id="pay-test-note">Test mode: use Netbanking or UPI. International cards are not accepted.</p>
+              <button type="button" class="btn-secondary btn-full" id="cancel-unpaid-btn" onclick="cancelUnpaidFromFlow()" style="margin-top:10px;">Cancel unpaid booking</button>
+              <p class="secure-note">🔒 All transactions are 256-bit SSL encrypted</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 6: CONFIRMATION -->
+        <div id="booking-step-6" class="booking-step">
+          <div class="confirmation-page">
+            <div class="confirm-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <h2 class="confirm-title">Booking Confirmed!</h2>
+            <p class="confirm-sub">Your e-ticket has been generated successfully</p>
+
+            <div class="e-ticket" id="e-ticket-card"></div>
+
+            <div class="confirm-actions">
+              <button class="btn-primary" onclick="printTicket()">🖨️ Print Ticket</button>
+              <button class="btn-secondary" onclick="navigateTo('bookings')">View All Bookings</button>
+              <button class="btn-secondary" onclick="bookAnotherTicket()">Book Another</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════ MY BOOKINGS -->
+      <div id="page-bookings" class="page">
+        <div class="page-header">
+          <h1 class="page-title">My Bookings</h1>
+          <button class="btn-primary" onclick="navigateTo('search')">+ Book New Ticket</button>
+        </div>
+
+        <div class="filter-bar">
+          <button class="filter-btn active" onclick="filterBookings('all', this)">All</button>
+          <button class="filter-btn" onclick="filterBookings('CONFIRMED', this)">Confirmed</button>
+          <button class="filter-btn" onclick="filterBookings('RAC', this)">RAC</button>
+          <button class="filter-btn" onclick="filterBookings('WAITING_LIST', this)">Waitlist</button>
+          <button class="filter-btn" onclick="filterBookings('CANCELLED', this)">Cancelled</button>
+        </div>
+
+        <div id="bookings-list" class="bookings-full-list"></div>
+      </div>
+
+      <!-- ══════════════════════════════════════════ PNR ENQUIRY -->
+      <div id="page-pnr" class="page">
+        <div class="page-header">
+          <h1 class="page-title">PNR Enquiry</h1>
+          <p class="page-sub">Check the current status of any ticket</p>
+        </div>
+
+        <div class="card pnr-search-card">
+          <h2>Enter PNR Number</h2>
+          <div class="pnr-search-row">
+            <input type="text" class="form-input pnr-input" id="pnr-input" placeholder="Enter 10-digit PNR number" maxlength="10" />
+            <button class="btn-primary" onclick="searchPNR()">Check Status</button>
+          </div>
+          <p class="pnr-hint">e.g. 2849102841</p>
+        </div>
+
+        <div id="pnr-result"></div>
+      </div>
+
+      <!-- ══════════════════════════════════════════ PROFILE -->
+      <div id="page-profile" class="page">
+        <div class="page-header">
+          <h1 class="page-title">My Profile</h1>
+        </div>
+
+        <div class="profile-layout">
+          <div class="profile-card card">
+            <div class="profile-avatar-section">
+              <div class="profile-avatar" id="profile-avatar">RS</div>
+              <div class="profile-name-section">
+                <h2 id="profile-name-display">Rahul Sharma</h2>
+                <span class="status-badge active">ACTIVE</span>
+              </div>
+            </div>
+
+            <form onsubmit="updateProfile(event)">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label" for="profile-name">Full Name</label>
+                  <input type="text" class="form-input" id="profile-name" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="profile-email">Email Address</label>
+                  <input type="email" class="form-input" id="profile-email" disabled />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="profile-phone">Phone Number</label>
+                  <input type="tel" class="form-input" id="profile-phone" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="profile-since">Member Since</label>
+                  <input type="text" class="form-input" id="profile-since" disabled />
+                </div>
+              </div>
+              <button type="submit" class="btn-primary">Save Changes</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════ SAVED PASSENGERS -->
+      <div id="page-passengers" class="page">
+        <div class="page-header">
+          <h1 class="page-title">Saved Passengers</h1>
+          <button class="btn-primary" onclick="openAddPassengerModal()">+ Add Passenger</button>
+        </div>
+        <div id="passengers-grid" class="passengers-grid"></div>
+      </div>
+
+      <!-- ══════════════════════════════════════════ TDR -->
+      <div id="page-tdr" class="page">
+        <div class="page-header">
+          <h1 class="page-title">TDR / Refunds</h1>
+          <button class="btn-primary" onclick="openFileTDRModal()">+ File TDR</button>
+        </div>
+        <div id="tdr-list" class="tdr-list"></div>
+      </div>
+
+      <!-- ══════════════════════════════════════════ GRIEVANCES -->
+      <div id="page-grievances" class="page">
+        <div class="page-header">
+          <h1 class="page-title">Grievances</h1>
+          <button class="btn-primary" onclick="openFileGrievanceModal()">+ File Complaint</button>
+        </div>
+        <div id="grievances-list" class="grievances-list"></div>
+      </div>
+
+      <!-- ══════════════════════════════════════════ ALERTS -->
+      <div id="page-alerts" class="page">
+        <div class="page-header">
+          <h1 class="page-title">Alerts & Notifications</h1>
+          <button class="btn-secondary" onclick="markAllRead()">Mark All Read</button>
+        </div>
+        <div id="alerts-list" class="alerts-full-list"></div>
+      </div>
+
+    </main>
+</div>
+</div>
+
+<!-- ADD PASSENGER MODAL -->
+<div class="modal-overlay hidden" id="modal-add-passenger">
+  <div class="modal">
+    <div class="modal-header">
+          <h3 id="passenger-modal-title">Add Passenger</h3>
+      <button class="modal-close" onclick="closeModal('modal-add-passenger')">✕</button>
+    </div>
+    <form onsubmit="savePassenger(event)" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label" for="modal-pax-name">Full Name *</label>
+          <input type="text" class="form-input" id="modal-pax-name" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="modal-pax-age">Age *</label>
+          <input type="number" class="form-input" id="modal-pax-age" min="1" max="120" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="modal-pax-gender">Gender *</label>
+          <select class="form-select" id="modal-pax-gender" required>
+            <option value="MALE">Male</option>
+            <option value="FEMALE">Female</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="modal-pax-id-type">ID Proof Type *</label>
+          <select class="form-select" id="modal-pax-id-type" required>
+            <option value="AADHAAR">Aadhaar Card</option>
+            <option value="PAN">PAN Card</option>
+            <option value="PASSPORT">Passport</option>
+            <option value="DRIVING_LICENSE">Driving License</option>
+            <option value="VOTER_ID">Voter ID</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="modal-pax-id-ref">ID Proof Number *</label>
+          <input type="text" class="form-input" id="modal-pax-id-ref" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="modal-pax-berth">Berth Preference</label>
+          <select class="form-select" id="modal-pax-berth">
+            <option value="NO_BERTH">No Preference</option>
+            <option value="LOWER">Lower</option>
+            <option value="MIDDLE">Middle</option>
+            <option value="UPPER">Upper</option>
+            <option value="SIDE_LOWER">Side Lower</option>
+            <option value="SIDE_UPPER">Side Upper</option>
+            <option value="WINDOW">Window</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="modal-pax-disability">Disability Type</label>
+          <select class="form-select" id="modal-pax-disability">
+            <option value="NONE">None</option>
+            <option value="ORTHOPEDIC">Orthopedic</option>
+            <option value="VISUAL">Visual Impairment</option>
+            <option value="HEARING">Hearing Impairment</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeModal('modal-add-passenger')">Cancel</button>
+        <button type="submit" class="btn-primary" id="passenger-modal-submit">Save Passenger</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- FILE TDR MODAL -->
+<div class="modal-overlay hidden" id="modal-file-tdr">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>File TDR (Ticket Deposit Receipt)</h3>
+      <button class="modal-close" onclick="closeModal('modal-file-tdr')">✕</button>
+    </div>
+    <form onsubmit="submitTDR(event)" class="modal-body" id="tdr-form" novalidate>
+      <div class="form-group">
+        <label class="form-label" for="tdr-pnr">PNR number *</label>
+        <div class="tdr-pnr-row">
+          <input type="text" class="form-input" id="tdr-pnr" inputmode="numeric" maxlength="10" placeholder="10-digit PNR" autocomplete="off" />
+          <button type="button" class="btn-secondary" onclick="loadTdrEligibility()">Check this PNR</button>
+        </div>
+      </div>
+      <div id="tdr-dynamic" aria-live="polite"></div>
+      <p class="tdr-error" id="tdr-error" role="alert" hidden></p>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeModal('modal-file-tdr')">Cancel</button>
+        <button type="submit" class="btn-primary" id="tdr-submit" disabled>File TDR</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- FILE GRIEVANCE MODAL -->
+<div class="modal-overlay hidden" id="modal-file-grievance">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>File a Complaint</h3>
+      <button class="modal-close" onclick="closeModal('modal-file-grievance')">✕</button>
+    </div>
+    <form onsubmit="submitGrievance(event)" class="modal-body">
+      <div class="form-group">
+        <label class="form-label" for="griev-category">Category *</label>
+        <select class="form-select" id="griev-category" required>
+          <option value="">Select Category</option>
+          <option value="TICKETING">Ticketing Issue</option>
+          <option value="TRAIN_CLEANLINESS">Train Cleanliness</option>
+          <option value="STATION_CLEANLINESS">Station Cleanliness</option>
+          <option value="STAFF_BEHAVIOUR">Staff Behaviour</option>
+          <option value="SECURITY">Security</option>
+          <option value="REFUND">Refund Issue</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="griev-subject">Subject *</label>
+        <input type="text" class="form-input" id="griev-subject" placeholder="Brief subject of complaint" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="griev-desc">Description *</label>
+        <textarea class="form-textarea" id="griev-desc" rows="4" placeholder="Describe your complaint in detail..." required></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeModal('modal-file-grievance')">Cancel</button>
+        <button type="submit" class="btn-primary">Submit Complaint</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- CANCEL BOOKING MODAL -->
+<div class="modal-overlay hidden" id="modal-cancel-booking">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Cancel Booking</h3>
+      <button class="modal-close" onclick="closeModal('modal-cancel-booking')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="warning-box">
+        ⚠️ Cancellation charges and refund are calculated strictly by the railway server rules based on time remaining before departure.
+      </div>
+      <div id="cancel-booking-info"></div>
+      <div id="cancel-passengers-container" style="margin-bottom:14px;"></div>
+      <div class="cancellation-preview">
+        <div class="cancel-row"><span>Cancellation Charge:</span><span class="text-danger" id="cancel-charge">₹0.00</span></div>
+        <div class="cancel-row"><span>Estimated Refund:</span><span class="text-success" id="cancel-refund">₹0.00</span></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-cancel-booking')">Keep Booking</button>
+      <button class="btn-danger" id="btn-confirm-cancel" onclick="confirmCancellation()">Confirm Cancel</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- LOADING OVERLAY -->
+<div id="loading-overlay" class="loading-overlay hidden">
+  <div class="loading-spinner"></div>
+  <p class="loading-text" id="loading-text">Processing...</p>
+</div>
+

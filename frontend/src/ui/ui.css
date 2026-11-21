@@ -1,0 +1,52 @@
+/* Shared UI primitives: Select, DatePicker, Tabs, typed text. Tokens come from public/rrms-theme.css */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* custom select + date picker trigger */
+.sel { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sel-label { font: 600 var(--rrms-fs-sm)/1.2 var(--rrms-font); color: var(--rrms-text); }
+.sel-btn { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; cursor: pointer; }
+.sel-btn:disabled { opacity: .55; cursor: not-allowed; }
+.sel-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-val.ph { color: var(--rrms-placeholder); }
+.sel-chev { flex: none; color: var(--rrms-text-muted); transition: transform .2s var(--rrms-ease); }
+.sel-chev.up { transform: rotate(180deg); }
+.sel-list {
+  position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; right: 0; max-height: 260px; overflow-y: auto; margin: 0; padding: 6px; list-style: none;
+  background: var(--rrms-surface); border: 1px solid var(--rrms-border); border-radius: var(--rrms-radius); box-shadow: var(--rrms-shadow-lg); animation: rrms-pop .18s var(--rrms-ease) both; min-width: 220px;
+}
+.sel-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: var(--rrms-fs-sm); color: var(--rrms-text); }
+.sel-opt small { display: block; color: var(--rrms-text-muted); font-size: 11px; }
+.sel-opt.on { background: var(--rrms-primary-soft); }
+.sel-opt.sel { color: var(--rrms-accent-text); font-weight: 700; }
+
+.dp { position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; width: 300px; max-width: calc(100vw - 32px); padding: 12px; background: var(--rrms-surface); border: 1px solid var(--rrms-border); border-radius: var(--rrms-radius); box-shadow: var(--rrms-shadow-lg); animation: rrms-pop .18s var(--rrms-ease) both; }
+.dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font: 500 16px/1 var(--rrms-font-display); color: var(--rrms-text); }
+.dp-nav { width: 34px; height: 34px; }
+.dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.dp-dow { font: 500 10px/2 var(--rrms-font-mono); color: var(--rrms-text-muted); letter-spacing: .08em; }
+.dp-day { height: 36px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--rrms-text); font: 500 13px var(--rrms-font); cursor: pointer; transition: background-color .15s; }
+.dp-day:hover:not(:disabled) { background: var(--rrms-primary-soft); }
+.dp-day:disabled { color: var(--rrms-text-subtle); opacity: .45; cursor: not-allowed; }
+.dp-day.today { border-color: var(--rrms-accent); }
+.dp-day.sel { background: var(--rrms-primary); color: #fff; font-weight: 700; }
+.dp-day:focus-visible { outline: none; box-shadow: var(--rrms-focus); }
+
+/* tabs with a sliding indicator */
+.tabs { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; padding: 4px; border-radius: 14px; background: var(--rrms-surface-alt); border: 1px solid var(--rrms-border-soft); }
+.tabs-bar { position: absolute; top: 4px; bottom: 4px; left: 0; border-radius: 10px; background: var(--rrms-primary); box-shadow: 0 6px 16px rgba(34, 89, 194, .35); transition: transform .32s var(--rrms-ease), width .32s var(--rrms-ease), background-color .2s; }
+.tabs-tab { position: relative; z-index: 1; padding: 10px 8px; border: 0; background: transparent; color: var(--rrms-text-muted); font: 600 13px/1.2 var(--rrms-font); cursor: pointer; border-radius: 10px; transition: color .2s; }
+.tabs-tab[aria-selected='true'] { color: #fff; }
+.tabs-tab:focus-visible { outline: none; box-shadow: var(--rrms-focus); }
+
+/* typed headline */
+.typed { font-style: italic; font-weight: 400; color: var(--rrms-accent-text); }
+.typed-caret { display: inline-block; width: 2px; height: .85em; margin-left: 3px; background: var(--rrms-accent-text); vertical-align: -0.05em; animation: rrms-blink 1s steps(1) infinite; }
+@keyframes rrms-blink { 50% { opacity: 0; } }
+
+/* enhanced native controls (src/ui/enhance.ts): the native element stays, invisible; the popup floats above everything */
+.enh-native { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden; margin: 0 !important; padding: 0 !important; border: 0 !important; }
+.sel.enh { width: 100%; }
+.sel.enh .sel-btn { width: 100%; }
+.sel.enh[hidden] { display: none; }
+.enh-pop { position: fixed !important; z-index: 10060; right: auto; margin: 0; }
+.sel-opt[aria-disabled='true'] { opacity: .5; cursor: not-allowed; }

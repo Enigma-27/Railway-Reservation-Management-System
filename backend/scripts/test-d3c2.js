@@ -148,24 +148,24 @@ async function runTests() {
     console.log('\n--- SETUP: Authenticating Test Users ---');
 
     const adminLogin = await request('POST', '/api/auth/admin/login', {
-      email: 'admin@railways.gov.in',
-      password: 'AdminPassword123!'
+      email: 'admin@rrms.in',
+      password: 'Demo@123'
     });
-    assert(adminLogin.status === 200, 'Admin (admin@railways.gov.in) logged in successfully');
+    assert(adminLogin.status === 200, 'Admin (admin@rrms.in) logged in successfully');
     const tokenAdmin = adminLogin.data.data.token;
 
     const staffLogin1 = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin1.status === 200, 'Staff 1 (EMP-TC-101) logged in successfully');
     const tokenStaff1 = staffLogin1.data.data.token;
 
     const passengerLogin = await request('POST', '/api/auth/passenger/login', {
-      email: 'rahul.sharma@example.com',
-      password: 'Password123!'
+      email: 'passenger@rrms.in',
+      password: 'Demo@123'
     });
-    assert(passengerLogin.status === 200, 'Passenger (rahul.sharma@example.com) logged in successfully');
+    assert(passengerLogin.status === 200, 'Passenger (passenger@rrms.in) logged in successfully');
     const tokenPassenger = passengerLogin.data.data.token;
 
     // Clean up any test assignments, fines, incidents, reports with high IDs
@@ -578,7 +578,7 @@ async function runTests() {
       email: 'test.staff@railways.gov.in',
       phone: '+91-9876543299',
       designation: 'TICKET_COLLECTOR',
-      password: 'Password123!'
+      password: 'Demo@123'
     }, tokenAdmin);
     assert(missingEmpNo.status === 400, 'POST /api/admin/staff without employeeNo refused with 400 Bad Request');
 
@@ -599,7 +599,7 @@ async function runTests() {
       email: 'unique.email@railways.gov.in',
       phone: '+91-9876543298',
       designation: 'TICKET_COLLECTOR',
-      password: 'Password123!'
+      password: 'Demo@123'
     }, tokenAdmin);
     assert(dupEmpNo.status === 400, 'Duplicate employee number refused with 400 Bad Request');
 
@@ -607,10 +607,10 @@ async function runTests() {
     const dupEmail = await request('POST', '/api/admin/staff', {
       employeeNo: 'EMP-TC-998',
       name: 'Duplicate Email Staff',
-      email: 'admin@railways.gov.in', // Existing admin email
+      email: 'admin@rrms.in', // Existing admin email
       phone: '+91-9876543297',
       designation: 'TICKET_COLLECTOR',
-      password: 'Password123!'
+      password: 'Demo@123'
     }, tokenAdmin);
     assert(dupEmail.status === 400, 'Duplicate email refused with 400 Bad Request');
 

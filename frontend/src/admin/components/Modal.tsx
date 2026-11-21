@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -9,53 +9,48 @@ interface ModalProps {
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 }
 
-export const Modal: React.FC<ModalProps> = ({
-  isOpen,
-  onClose,
-  title,
-  children,
-  maxWidth = 'lg',
-}) => {
+const WIDTH = { sm: 400, md: 480, lg: 560, xl: 680, '2xl': 820 };
+
+/** Animated dialog: Escape closes, focus moves in and returns, Tab stays inside, a click outside closes. */
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, maxWidth = 'lg' }) => {
+  const uid = useId();
+  const box = useRef<HTMLDivElement>(null);
+  const opener = useRef<Element | null>(null);
+
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+    if (!isOpen) return;
+    opener.current = document.activeElement;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.setTimeout(() => (box.current?.querySelector('input,select,textarea,button.sel-btn') as HTMLElement | null)?.focus(), 60);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !box.current) return;
+      const f = Array.from(box.current.querySelectorAll<HTMLElement>('a[href],button:not([disabled]),input:not([disabled]):not([aria-hidden="true"]),textarea:not([disabled]),select:not([disabled]):not([aria-hidden="true"]),[tabindex]:not([tabindex="-1"])'));
+      if (!f.length) return;
+      const a = f[0]; const z = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
+      else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
     };
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleKeyDown);
-    }
+    window.addEventListener('keydown', onKey);
     return () => {
-      document.body.style.overflow = 'unset';
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+      (opener.current as HTMLElement | null)?.focus?.();
     };
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
-
-  const widthClasses = {
-    sm: 'max-w-sm',
-    md: 'max-w-md',
-    lg: 'max-w-lg',
-    xl: 'max-w-xl',
-    '2xl': 'max-w-2xl',
-  }[maxWidth];
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div
-        className={`bg-white rounded-2xl w-full ${widthClasses} shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150`}
-      >
-        <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
-          <h3 className="text-sm font-bold text-slate-900 tracking-tight">{title}</h3>
-          <button
-            onClick={onClose}
-            className="btn-icon ml-2 shrink-0"
-            title="Close"
-          >
-            <X className="w-4 h-4" />
+    <div className="am-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="am" style={{ maxWidth: WIDTH[maxWidth] }} role="dialog" aria-modal="true" aria-labelledby={`${uid}-t`} ref={box}>
+        <div className="am-head">
+          <h3 id={`${uid}-t`}>{title}</h3>
+          <button type="button" onClick={onClose} className="btn-icon shrink-0" aria-label={`Close ${title}`}>
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
-        <div className="p-5 max-h-[80vh] overflow-y-auto scrollbar-thin">{children}</div>
+        <div className="am-body scrollbar-thin">{children}</div>
       </div>
     </div>
   );

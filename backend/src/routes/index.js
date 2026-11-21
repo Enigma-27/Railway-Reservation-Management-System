@@ -13,6 +13,9 @@ const maintenanceRoutes = require('./maintenanceRoutes');
 const notificationRoutes = require('./notificationRoutes');
 const complaintRoutes = require('./complaintRoutes');
 const scheduleRoutes = require('./scheduleRoutes');
+const savedPassengerRoutes = require('./savedPassengerRoutes');
+const publicInfoRoutes = require('./publicInfoRoutes');
+const liveTrainsRoutes = require('./liveTrainsRoutes');
 const { authenticate } = require('../middleware/auth');
 const { getMe } = require('../controllers/authController');
 
@@ -22,6 +25,7 @@ const router = express.Router();
 router.use('/', healthRoutes);
 router.use('/auth', authRoutes);
 router.use('/trains', trainRoutes);
+router.use('/live-trains', liveTrainsRoutes);
 router.use('/stations', stationRoutes);
 router.use('/schedules', scheduleRoutes);
 router.use('/bookings', bookingRoutes);
@@ -33,6 +37,8 @@ router.use('/admin', adminRoutes);
 router.use('/maintenance', maintenanceRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/complaints', complaintRoutes);
+router.use('/saved-passengers', savedPassengerRoutes);
+router.use('/', publicInfoRoutes);
 
 // Direct /me convenience endpoint
 router.get('/me', authenticate, getMe);

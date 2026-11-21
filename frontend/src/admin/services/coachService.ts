@@ -1,11 +1,11 @@
-import { API_CONFIG } from '../config/api.config';
+import { isServiceMock } from '../config/api.config';
 import { Coach } from '../types/coach';
 import { httpRequest } from './http.client';
 import { mockStore, simulateLatency } from './mock.client';
 
 export const coachService = {
   async getCoaches(trainId?: number): Promise<Coach[]> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getCoaches();
       return trainId ? list.filter((c) => c.trainId === trainId) : list;
@@ -16,7 +16,7 @@ export const coachService = {
   },
 
   async createCoach(payload: Omit<Coach, 'coachId'>): Promise<Coach> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getCoaches();
       const newId = Math.max(...list.map((c) => c.coachId), 0) + 1;
@@ -42,7 +42,7 @@ export const coachService = {
   },
 
   async updateCoach(coachId: number, payload: Partial<Omit<Coach, 'coachId'>>): Promise<Coach> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getCoaches();
       const idx = list.findIndex((c) => c.coachId === coachId);
@@ -72,7 +72,7 @@ export const coachService = {
   },
 
   async deleteCoach(coachId: number): Promise<void> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getCoaches();
       const target = list.find((c) => c.coachId === coachId);

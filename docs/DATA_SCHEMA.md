@@ -2,13 +2,13 @@
 
 ## 1. Introduction & Source of Truth
 
-This document establishes the canonical data dictionary and schema contract for the **Railway Reservation & Management System**. It directly matches the approved ER diagram (`database/FINALx4_Railway Reservation & Management System – ER Diagram.html`) and Section 16 of the Business Rules (`docs/BUSINESS_RULES.md`).
+This document establishes the canonical data dictionary and schema contract for the **Railway Reservation & Management System**. It directly matches the approved ER diagram (`database/FINALx4_Railway Reservation & Management System – ER Diagram.html`) and the Business Rules (`docs/BUSINESS_RULES.md`).
 
 All entities incorporate the real column names, codes, and IDs from the five authoritative datasets in `datasets/`:
 - **Stations (158)**: IDs 1 to 158 (`stations_158_final.xlsx`)
 - **Trains (60)**: IDs 101 to 160 (`final_trains_60.xlsx`)
 - **Routes (536)**: Route stops 1001 to 1536 (`final_routes_536.xlsx`)
-- **Users (50,000)**: Accounts 1 to 50000 (`users_synthetic_2.csv`)
+- **Users (50,000)**: Accounts 1 to 50000 (`users_synthetic_2.csv`). The live table has **50,008** rows: the 50,000 synthetic users plus 8 demo, staff and admin accounts (Rahul Sharma, 3 staff, the admin, the walk-in account and others).
 - **Passengers (75,000)**: Saved passenger profiles 7 to 75006 (`passengers_synthetic_2.csv`)
 
 Columns required by the business rules that are not present in the raw dataset files are marked **`(new)`**.
@@ -24,7 +24,7 @@ Columns required by the business rules that are not present in the raw dataset f
 
 ### 2.2 User Account Statuses
 ```json
-["ACTIVE", "SUSPENDED", "PENDING"]
+["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"]
 ```
 
 ### 2.3 Booking Statuses
@@ -44,7 +44,7 @@ Columns required by the business rules that are not present in the raw dataset f
 
 ### 2.6 Payment Methods
 ```json
-["CREDIT_CARD", "DEBIT_CARD", "UPI", "NET_BANKING", "CASH"]
+["CREDIT_CARD", "DEBIT_CARD", "UPI", "NET_BANKING", "CASH", "UNKNOWN"]
 ```
 *(Note: `CASH` is permitted strictly for station counter bookings per BR-CB4).*
 
@@ -164,38 +164,49 @@ Columns required by the business rules that are not present in the raw dataset f
 - **Cleanliness Issues**: `["TOILET_DIRTY", "LITTER", "WATER_SHORTAGE", "LINEN_SOILED", "PESTS", "SPILLAGE"]`
 
 ### 2.26 Business Rule Error Codes
+These are the codes the SQL files and the backend really return. The full table with HTTP status and plain meaning is section 1.2 of `docs/API_CONTRACT.md`.
 ```json
 [
   "SEAT_NOT_AVAILABLE",
   "WAITING_LIST_FULL",
-  "NOT_ALL_CONFIRMED",
-  "HOLD_EXPIRED",
   "TRAIN_NOT_RUNNING",
+  "JOURNEY_PAST",
+  "OUTSIDE_BOOKING_WINDOW",
+  "INVALID_STOPS",
   "QUOTA_NOT_ELIGIBLE",
   "CONCESSION_PROOF_REQUIRED",
   "NO_ADULT_PASSENGER",
   "BERTH_PREFERENCE_NOT_MET",
   "MONTHLY_LIMIT_EXCEEDED",
-  "CHART_PREPARED"
+  "CHART_PREPARED",
+  "TRANSACTION_FAILED",
+  "PAYMENT_AMOUNT_MISMATCH",
+  "PAYMENT_AMOUNT_INVALID",
+  "REFUND_EXCEEDS_PAYMENT",
+  "INVALID_SETTING_VALUE",
+  "HOLD_EXPIRED"
 ]
 ```
+- `HOLD_EXPIRED` is only returned (HTTP 200, `success: false`) when a payment arrives after the hold.
+- `NOT_ALL_CONFIRMED` is **reserved, not raised**: no procedure or route returns it.
+- The triggers can also stop an insert with `SEAT_OVERLAP_ERROR`, `RAC_BERTH_ERROR` and `RAC_CAPACITY_EXCEEDED` (database only).
 
 ---
 
 ## 3. Relational Schema Data Dictionary (MySQL Engine)
 
 ### 3.1 USER_ACCOUNT
-Authentication credentials, RBAC roles, and verification status for all 50,000 users.
+Authentication credentials, RBAC roles, and verification status for all 50,008 users. Seed users share the password `Demo@123`; staff and admin have their own (see the README). Passwords are stored as bcrypt hashes.
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `user_id` | `INT` | No | Primary Key | Dataset: `userId` (1 to 50000) |
+| `user_id` | `INT` | No | Primary Key | Dataset: `userId` (1 to 50000); demo, staff and admin accounts follow; new passengers get MAX + 1 |
 | `email` | `VARCHAR(191)` | No | Unique | User login email address |
 | `password_hash` | `VARCHAR(255)` | No | - | Salted SHA-256 / bcrypt password hash |
 | `phone` | `VARCHAR(32)` | No | Unique | Dataset: `phoneNumber` |
 | `full_name` **`(new)`** | `VARCHAR(128)` | No | - | Legal account holder name |
 | `role` **`(new)`** | `ENUM` | No | Default `'PASSENGER'` | `'PASSENGER'`, `'STAFF'`, `'ADMIN'` |
-| `account_status` **`(new)`** | `ENUM` | No | Default `'ACTIVE'` | `'ACTIVE'`, `'SUSPENDED'`, `'PENDING'` |
+| `account_status` **`(new)`** | `ENUM` | No | Default `'ACTIVE'` | `'ACTIVE'`, `'INACTIVE'`, `'SUSPENDED'`, `'PENDING'`. Only `ACTIVE` accounts can log in. Seed: 49,507 ACTIVE, 500 INACTIVE, 1 SUSPENDED |
 | `aadhaar_verified` **`(new)`** | `BOOLEAN` | No | Default `FALSE` | Controls monthly booking limit (12 vs 24 via settings) and Tatkal |
 | `created_at` | `DATETIME` | No | - | Dataset: `createdAt` |
 
@@ -219,17 +230,17 @@ Pre-saved passenger profiles belonging to users (75,000 synthetic records in dat
 ---
 
 ### 3.3 SEAT_HOLD
-Temporary 10-minute hold reservation initiated upon entering Booking Step 3 (BR-B2, Section 16 item 4).
+**Present in the schema but not used by any procedure or backend code (only `sp_prepare_chart` deletes its rows).** The real 10-minute hold is the `BOOKING` row in `PAYMENT_PENDING` plus the release job `sp_release_expired_holds` (BR-B2). The table has 5 seed rows (`HOLD-TEST-TOKEN-1` to `5`) and can be ignored. See `docs/KNOWN_GAPS_AND_DECISIONS.md`.
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `token` **`(new)`** | `VARCHAR(64)` | No | Primary Key | Unique hold token (e.g. `HOLD-982104-BCT-NDLS`) |
-| `user_id` **`(new)`** | `INT` | No | FK -> `USER_ACCOUNT.user_id` | User holding seats (1 active hold per user) |
+| `user_id` **`(new)`** | `INT` | No | FK -> `USER_ACCOUNT.user_id` | User holding seats |
 | `schedule_id` **`(new)`** | `INT` | No | FK -> `TRAIN_SCHEDULE.schedule_id` | Specific train run |
 | `class_id` **`(new)`** | `INT` | No | FK -> `SEAT_CLASS.class_id` | Travel class |
-| `quota` **`(new)`** | `ENUM` | No | Quota Enum | Applied quota (`GENERAL`, `LADIES`, `TATKAL`, etc.) |
-| `seat_count` **`(new)`** | `INT` | No | CHECK (1 <= `seat_count` <= 6) | Seats held across CONFIRMED, RAC, WL |
-| `expires_at` **`(new)`** | `DATETIME` | No | - | Expiration timestamp (created_at + 10 minutes) |
+| `quota` **`(new)`** | `ENUM` | No | Quota Enum | Applied quota |
+| `seat_count` **`(new)`** | `INT` | No | CHECK (1 <= `seat_count` <= 6) | Seats held |
+| `expires_at` **`(new)`** | `DATETIME` | No | - | Expiration timestamp |
 
 ---
 
@@ -256,7 +267,7 @@ Master transaction entity representing an entire PNR (1 to 6 passengers).
 ---
 
 ### 3.5 PASSENGER_BOOKING
-Individual passenger line-item tied to a PNR, recording itemized fare components (BR-F, BR-R3, Section 16 item 3).
+Individual passenger line-item tied to a PNR, recording itemized fare components (BR-F, BR-R3).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -297,6 +308,8 @@ Real-time seat allocation and queue position tracking (0..1 record per passenger
 ---
 
 ### 3.7 PAYMENT
+> `payment_id` is `AUTO_INCREMENT` (see migration `04_auto_increment_ids.sql`). The same applies to `RESERVATION.res_id`, `REFUND.refund_id`, `CANCELLATION.cancel_id`, `TICKET_VERIFICATION.verify_id` and `CHART_SNAPSHOT.snapshot_id`: procedures insert without an id and read the new one with `LAST_INSERT_ID()`, so bookings made at the same time can never get the same id. Inserts that give an id themselves (the seed loader, tests) still work and move the counter above that id.
+
 Monetary settlement transactions. For online bookings, uses Razorpay in TEST mode (BR-B7); counter bookings use CASH or POS.
 
 | Field | Type | Nullable | Key / Constraint | Description |
@@ -304,10 +317,31 @@ Monetary settlement transactions. For online bookings, uses Razorpay in TEST mod
 | `payment_id` | `INT` | No | Primary Key | Unique payment transaction record |
 | `pnr` | `VARCHAR(10)` | Yes | FK -> `BOOKING.pnr` | Associated PNR (can be NULL for late payment refund) |
 | `amount` | `DECIMAL(10,2)`| No | CHECK (`amount` > 0) | Exact payment amount collected (strictly positive; rejected via SQLSTATE '45000' if <= 0 or <> booking total fare) |
-| `method` | `ENUM` | No | Payment Mode Enum | `'CREDIT_CARD'`, `'DEBIT_CARD'`, `'UPI'`, `'NET_BANKING'`, `'CASH'` |
+| `method` | `ENUM` | No | Payment Mode Enum | `'CREDIT_CARD'`, `'DEBIT_CARD'`, `'UPI'`, `'NET_BANKING'`, `'CASH'`, `'UNKNOWN'`. Online payments store what Razorpay reports for the payment (card type decides credit or debit); `UNKNOWN` when Razorpay gives no usable method (wallet, EMI, no answer). Counter payments are `CASH`. |
 | `status` | `ENUM` | No | Payment Status Enum | `'PENDING'`, `'SUCCESS'`, `'FAILED'` |
 | `gateway_payment_id` **`(new)`**| `VARCHAR(128)`| Yes| Unique | Razorpay test payment ID (ensures idempotency, BR-B14) |
 | `paid_at` | `DATETIME` | Yes | - | Successful payment settlement timestamp |
+
+**See also `PAYMENT_ORDER` (3.7a):** every Razorpay order is saved in MySQL before the passenger pays, so a payment can always be matched to its booking, even when MongoDB is down.
+
+---
+
+### 3.7a PAYMENT_ORDER
+Razorpay orders created for bookings. MySQL is the source of truth for orders; MongoDB `raw_gateway_replies` is only an optional audit copy. No seed rows (table starts empty after every load). Migration: `database/mysql/migrations/03_payment_order.sql`.
+
+| Field | Type | Nullable | Key / Constraint | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `order_id` | `VARCHAR(40)` | No | Primary Key | Razorpay order id (`order_...`) |
+| `pnr` | `VARCHAR(10)` | No | FK -> `BOOKING.pnr` (ON DELETE CASCADE), Index | The booking this order pays for |
+| `amount_paise` | `BIGINT` | No | CHECK (`amount_paise` > 0) | Order amount in paise. Always equals `BOOKING.total_fare` in paise at order time; checked again before a payment is confirmed |
+| `currency` | `VARCHAR(3)` | No | Default `'INR'` | Currency |
+| `status` | `ENUM` | No | Default `'CREATED'`, Index (`status`, `created_at`) | `'CREATED'` (waiting for payment), `'PAID'` (ticket confirmed inside the hold), `'LATE_PAID'` (paid after the hold: no ticket, automatic refund), `'FAILED'`, `'EXPIRED'` (the booking hold ended or was cancelled without a payment; the order is still checked for 24 hours) |
+| `gateway_payment_id` | `VARCHAR(40)` | Yes | - | Razorpay payment id that settled the order |
+| `created_at` | `DATETIME` | No | - | India time the order was saved |
+| `paid_at` | `DATETIME` | Yes | - | India time the order left `CREATED` as `PAID` or `LATE_PAID` |
+| `last_checked_at` | `DATETIME` | Yes | - | India time the reconcile job last asked Razorpay about this order |
+
+**Allowed status changes (`sp_set_payment_order_result`):** `CREATED` to `PAID`, `LATE_PAID`, `FAILED` or `EXPIRED`, and `EXPIRED` to `PAID` or `LATE_PAID` (a payment still arrived inside the 24 hour check window). `FAILED` is final. Everything else (including a repeat) returns `INVALID_TRANSITION`; an unknown order returns `NOT_FOUND`. A payment is only ever confirmed by `sp_confirm_payment`.
 
 ---
 
@@ -326,7 +360,7 @@ Voluntary ticket cancellation audit records.
 ---
 
 ### 3.9 TDR_FILING
-Formal Ticket Deposit Receipt claims for railway operational failures (Section 9, Section 16 item 7).
+Formal Ticket Deposit Receipt claims for railway operational failures (Section 9).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -355,12 +389,19 @@ Monetary refund ledger linking to cancellations, TDRs, waitlist purges, or late 
 | `payment_id` | `INT` | No | FK -> `PAYMENT.payment_id` | Target original payment record |
 | `amount` | `DECIMAL(10,2)`| No | - | Exact amount refunded to original payment mode |
 | `reason` | `ENUM` | No | Refund Reason Enum | `'CANCELLATION'`, `'TDR_APPROVED'`, `'WAITLIST_PURGE'`, `'PAYMENT_AFTER_EXPIRY'`, `'TRAIN_CANCELLED'` |
-| `status` | `ENUM` | No | Default `'PENDING'` | `'PENDING'`, `'PROCESSED'` |
+| `status` | `ENUM` | No | Default `'PENDING'` | `'PENDING'` (row created, money not yet sent), `'PROCESSED'` (gateway done), `'FAILED'` (gateway failed, will be retried). SQL procedures always write `PENDING`. Changed only through `sp_set_refund_result`. Seed rows are `PROCESSED`. |
+| `gateway_refund_id` | `VARCHAR(40)` | Yes | - | Razorpay refund id (`rfnd_...`) once the gateway refund exists |
+| `failure_reason` | `VARCHAR(255)` | Yes | - | Gateway error text when `FAILED`. On `PROCESSED` rows it holds a note such as `SIMULATED_PAYMENT`, `CASH_PAYMENT_NO_GATEWAY` or `ALREADY_AT_GATEWAY` |
+| `attempts` | `INT` | No | Default `0` | Number of gateway results recorded (each `sp_set_refund_result` call counts one) |
+| `last_attempt_at` | `DATETIME` | Yes | - | India time of the last recorded attempt |
+| `processed_at` | `DATETIME` | Yes | - | India time when the row became `PROCESSED` |
+
+**Allowed status changes (`sp_set_refund_result`):** `PENDING` to `PROCESSED` or `FAILED`; `FAILED` to `PROCESSED` or `FAILED`. Everything else returns `INVALID_TRANSITION`. The refund cap (`fn_refund_room`, `trg_refund_cap`) counts `PENDING`, `PROCESSED` and `FAILED` refunds against the payment, because a failed refund is still owed. View `vw_refund_payout_summary` shows money paid out (`PROCESSED` only) separately from `PENDING` and `FAILED`. Migration: `database/mysql/migrations/02_refund_status_columns.sql`.
 
 ---
 
 ### 3.11 CHART_SNAPSHOT
-Immutable passenger manifest snapshot generated at chart time (8 hours before origin departure per BR-B12 / settings table, BR-B12a, Section 16 item 19).
+Immutable passenger manifest snapshot generated at chart time (8 hours before origin departure per BR-B12 / settings table, BR-B12a).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -380,7 +421,7 @@ Immutable passenger manifest snapshot generated at chart time (8 hours before or
 ---
 
 ### 3.12 SETTING
-Configurable system constants and operational knobs (Section 15, Section 16 item 5).
+Configurable system constants and operational knobs (Section 15).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -467,7 +508,7 @@ Specific calendar runs of trains governed by origin departure dates.
 ---
 
 ### 3.18 RUN_COACH_STATUS
-Tracks coach operational readiness per train run, supporting out-of-service maintenance flagging (BR-M3, Section 16 item 8).
+Tracks coach operational readiness per train run, supporting out-of-service maintenance flagging (BR-M3).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -519,7 +560,7 @@ Physical berths or chairs within a coach.
 ---
 
 ### 3.22 SCHEDULE_CLASS_INVENTORY
-Real-time seat counters partitioned by run and class (BR-Q10, Section 16 item 1).
+Real-time seat counters partitioned by run and class (BR-Q10).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -536,7 +577,7 @@ Real-time seat counters partitioned by run and class (BR-Q10, Section 16 item 1)
 ---
 
 ### 3.23 FARE
-Distance-slab pricing table per class (Section 6, BR-F2a, Section 16 item 6).
+Distance-slab pricing table per class (Section 6, BR-F2a).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -549,31 +590,34 @@ Distance-slab pricing table per class (Section 6, BR-F2a, Section 16 item 6).
 ---
 
 ### 3.24 CONCESSION_RULE
-Eligibility criteria and concession discount percentages (Section 7, Section 16 item 6).
+Eligibility criteria and concession discount percentages (Section 7).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `rule_id` | `INT` | No | Primary Key | Unique concession rule ID (CSV: `rule_id`) |
 | `concession_type` | `ENUM` | No | - | `'DIVYAANG'`, `'SENIOR_CITIZEN'` |
 | `class_id` | `INT` | Yes | FK -> `SEAT_CLASS.class_id` | Class limitation (NULL if all) |
-| `train_group` | `VARCHAR(64)`| Yes | - | e.g. `'SUPERFAST_PREMIUM'`, `'EXPRESS'` (CSV: `train_group`) |
-| `discount_pct` | `DECIMAL(5,2)`| No | - | Base fare discount percentage (e.g. 75.00, 50.00, 25.00) |
+| `train_group` | `VARCHAR(32)`| No | CHECK in (`'STANDARD'`, `'PREMIUM'`) | `'PREMIUM'` for Rajdhani, Shatabdi, Duronto and Vande Bharat trains, otherwise `'STANDARD'`. `fn_calculate_fare` uses the class's PREMIUM rule on premium trains and falls back to the STANDARD rule |
+| `discount_pct` | `DECIMAL(5,2)`| No | CHECK 0 to 100 | Base fare discount percentage (e.g. 75.00, 50.00, 25.00). Read by `fn_calculate_fare` |
 | `proof_types` | `JSON` / `VARCHAR(255)` | No | - | Allowed proof documents (`UDID`, `CONCESSION_CERTIFICATE`) |
-| `is_active` | `BOOLEAN` | No | Default `TRUE` | `TRUE` for Divyaang, `FALSE` for Senior Citizen |
+| `is_active` | `BOOLEAN` | No | Default `TRUE` | `TRUE` for Divyaang, `FALSE` for Senior Citizen. A rule counts only when active. The senior concession also needs `SETTING.CONCESSION_SENIOR_ENABLED = 'true'`. Never applied to Tatkal (BR-C5) |
 
 ---
 
 ### 3.25 REFUND_RULE
-Cancellation penalty percentages and flat deductions per origin departure time slabs (Section 8, Section 16 item 6).
+Cancellation penalty percentages and flat deductions per origin departure time slabs (Section 8).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `rule_id` | `INT` | No | Primary Key | Unique refund rule identifier |
-| `min_hours` | `INT` | No | - | Hours before origin departure (lower bound: 72, 24, 8) |
-| `max_hours` | `INT` | Yes | - | Hours before origin departure (upper bound: NULL, 72, 24) |
-| `deduction_pct` | `DECIMAL(5,2)`| No | - | Percentage deducted from taxable fare (0%, 25%, 50%, 100%) |
-| `flat_min_charge` | `DECIMAL(6,2)`| No | - | Minimum deduction (1A/EC 240, 2A 200, 3A/CC 180, SL 120, 2S 60) |
-| `clerkage` | `DECIMAL(6,2)`| No | Default 60.00 | Fee retained for RAC/WL cancellation before chart (CSV: `clerkage`) |
+| `class_id` | `INT` | Yes | FK -> `SEAT_CLASS.class_id`, Index | `NULL` = a general rule for every class (fallback, flat 120). A class rule beats a general rule of the same slab. Seed: rules 1-4 are general, rules 5-32 are one row per class and slab |
+| `min_hours` | `INT` | No | CHECK >= 0 | Start of the slab in hours before origin departure (72, 24, 8, 0). The slab is the rule with the highest `min_hours` the time has reached; the top slab (no `max_hours`) needs the time to be strictly above its `min_hours`. Past departure, the lowest slab applies |
+| `max_hours` | `INT` | Yes | CHECK > `min_hours` | Documentation of the slab end (NULL, 72, 24, 8). Not used to pick the slab |
+| `deduction_pct` | `DECIMAL(5,2)`| No | CHECK 0 to 100 | Percentage of the fare (insurance excluded) kept as the charge (0%, 25%, 50%, 100%) |
+| `flat_min_charge` | `DECIMAL(8,2)`| No | CHECK >= 0 | Minimum charge per passenger. Seed per class: 1A/EC 240, 2A 200, 3A/CC 180, SL 120, 2S 60. The charge is the larger of the percentage and this minimum, never more than the fare |
+| `clerkage` | `DECIMAL(8,2)`| No | CHECK >= 0, default 60.00 | Not read by the database today: the RAC/WL clerkage comes from `SETTING.CLERKAGE_PER_PASSENGER` |
+
+Migrations: `05_refund_rule_class.sql` (class column and seed rows), `06_rule_table_checks.sql` (CHECK constraints).
 
 ---
 
@@ -636,7 +680,7 @@ On-train ID checks conducted by Ticket Collectors (BR-ST3).
 
 ---
 
-### 3.29 FINE
+### 3.29a FINE
 Penalty charges issued on-the-spot by staff (BR-ST7).
 
 | Field | Type | Nullable | Key / Constraint | Description |
@@ -671,7 +715,7 @@ Operational emergencies or security incidents (BR-ST8, BR-ST9).
 ---
 
 ### 3.31 MAINTENANCE
-Coach and platform maintenance tasks (Section 13, Section 16 item 14).
+Coach and platform maintenance tasks (Section 13).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -687,7 +731,7 @@ Coach and platform maintenance tasks (Section 13, Section 16 item 14).
 ---
 
 ### 3.32 CROWD_REPORT
-Live platform head-count and density reports (BR-ST8, Section 16 item 11).
+Live platform head-count and density reports (BR-ST8).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -702,7 +746,7 @@ Live platform head-count and density reports (BR-ST8, Section 16 item 11).
 ---
 
 ### 3.33 CLEANLINESS_REPORT
-Coach and station sanitary maintenance logs (BR-ST8, Section 16 item 11).
+Coach and station sanitary maintenance logs (BR-ST8).
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -762,18 +806,15 @@ Persisted metadata for generated administrative operational reports.
 ---
 
 ### 3.37 SETTING
-Global system configuration key-value store (Section 15, Section 16 item 22).
+Same table as section 3.12 (listed twice in the first draft). See 3.12.
 
-| Field | Type | Nullable | Key / Constraint | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `setting_key` | `VARCHAR(64)` | No | Primary Key | Configuration parameter key (e.g. `MAX_TICKETS_PER_MONTH`) |
-| `setting_value` | `VARCHAR(255)`| No | - | Configuration parameter value (e.g. `12`, `24`, `7`, `8`) |
-| `description` | `TEXT` | Yes | - | Explanation of system setting |
-| `updated_at` | `DATETIME` | No | Default CURRENT_TIMESTAMP | Timestamp last updated |
+**Keys added with the Live Trains / booking-rules change (migration 07):** `SENIOR_AGE_MALE` (60) and `SENIOR_AGE_FEMALE` (45) are read by `sp_create_booking` (Senior citizen quota, automatic lower berth) and by `GET /api/booking-rules`; `CONTACT_HELPLINE`, `CONTACT_EMAIL` and `CONTACT_ADDRESS` are the Contact Us panel details (demo values, read through `GET /api/contact-info`). `MAX_PASSENGERS_PER_PNR` and `MAX_PASSENGERS_PER_PNR_TATKAL` are now enforced by the booking and counter-booking APIs.
+
+---
 
 ## 4. NoSQL Data Collections (MongoDB Storage Layer)
 
-Per Section 5 of the ER diagram and Section 16 of the rules, operational logs, high-velocity feeds, and varied-schema feedback are maintained in MongoDB:
+Per Section 5 of the ER diagram, operational logs, high-velocity feeds, and varied-schema feedback are maintained in MongoDB:
 
 ### 4.1 live_train_status (`LTS`)
 Live running updates (replicated copy of schedule delays for real-time tracking):
@@ -837,7 +878,7 @@ High-velocity user session and API audit trail:
 ```
 
 ### 4.5 raw_gateway_replies
-Raw callback and webhook payloads from Razorpay TEST gateway (Section 16 item 20):
+Raw callback and webhook payloads from Razorpay TEST gateway :
 ```json
 {
   "_id": "ObjectId",
@@ -850,3 +891,75 @@ Raw callback and webhook payloads from Razorpay TEST gateway (Section 16 item 20
   "received_at": "2026-10-18T15:31:00Z"
 }
 ```
+
+---
+
+## 5. Views, Functions, Procedures and Triggers (live list)
+
+Checked against the live database with a read-only query of `information_schema` (38 base tables, 6 views, 9 functions, 15 procedures, 9 triggers). The SQL source is in `database/mysql/` (`02_functions.sql`, `03_procedures.sql`, `04_triggers.sql`, `05_views.sql`).
+
+### 5.1 Views (6)
+| View | What it shows |
+| :--- | :--- |
+| `vw_available_seats_per_run` | Seats, RAC and waiting list per run and class (used by search and availability) |
+| `vw_booking_summary` | One line per booking with train, route and status |
+| `vw_run_occupancy` | Booked seats against capacity per run |
+| `vw_tdr_refund_summary` | TDR claims with their refund |
+| `vw_refund_payout_summary` | Money paid out (`PROCESSED` only) next to `PENDING` and `FAILED` refunds |
+| `vw_train_master_schedule` | Timetable: every stop of every train |
+
+### 5.2 Functions (9)
+| Function | Purpose |
+| :--- | :--- |
+| `fn_calculate_fare` | Full fare line as JSON (base, concession, charges, GST, insurance, total) from `FARE`, `CONCESSION_RULE` and `SETTING` |
+| `fn_calculate_distance` | Chargeable kilometres between two stops (100 km minimum) |
+| `fn_calculate_cancellation_refund` | Charge and refund for one passenger from `REFUND_RULE` |
+| `fn_get_user_monthly_ticket_count` | Bookings of a user in the calendar month |
+| `fn_check_monthly_ticket_limit` | 1 when the user may still book this month |
+| `fn_get_setting` | Read a `SETTING` value |
+| `fn_setting_value_valid` | Checks a new setting value (used by the setting triggers) |
+| `fn_refund_room` | How much more can be refunded on a payment (counts `PENDING`, `PROCESSED` and `FAILED` refunds) |
+| `fn_pick_refund_payment` | Chooses the payment a refund goes against |
+
+### 5.3 Procedures (15)
+| Procedure | Purpose |
+| :--- | :--- |
+| `sp_create_booking` | Online booking with all booking rules; creates the `PAYMENT_PENDING` hold |
+| `sp_create_counter_booking` | Counter booking, paid at once |
+| `sp_confirm_payment` | Confirms a payment; a late payment is refunded instead |
+| `sp_process_late_payment_refund` | Writes the refund for a payment that arrived after the hold |
+| `sp_release_expired_holds` | Releases unpaid bookings after `HOLD_MINUTES` and promotes the queue |
+| `sp_cancel_passenger_ticket` | Cancels one passenger or a whole PNR; writes `CANCELLATION` and a `PENDING` `REFUND` |
+| `sp_promote_passenger` | The only promotion path: RAC to CONFIRMED, waiting list to RAC |
+| `sp_file_tdr` | Files one TDR (checks owner, reason, duplicate, delay or departure, evidence, deadline) |
+| `sp_review_tdr` | Approves (refund, cancel, promote) or rejects a TDR |
+| `sp_verify_ticket` | Stores a ticket check by a staff member on duty |
+| `sp_board_passenger` | Marks CONFIRMED or RAC as BOARDED (refused with an open delay TDR) |
+| `sp_mark_passenger_noshow` | Marks NO_SHOW, frees the seat and promotes |
+| `sp_prepare_chart` | Chart time: lock run, sweep unsold quota, auto-upgrade, purge waiting list with refunds, write `CHART_SNAPSHOT` |
+| `sp_set_refund_result` | The only way a `REFUND` status changes (`PENDING` to `PROCESSED` or `FAILED`, `FAILED` to either) |
+| `sp_set_payment_order_result` | The only way a `PAYMENT_ORDER` status changes (`CREATED` to `PAID`, `LATE_PAID`, `FAILED` or `EXPIRED`; `EXPIRED` to `PAID` or `LATE_PAID`) |
+| `sp_cancel_unpaid_booking` | The passenger gives up a `PAYMENT_PENDING` booking: reservations cancelled, seats promoted, inventory re-synced, booking `FAILED` (owner checked) |
+
+### 5.4 Triggers (9)
+| Trigger | Table and moment | Purpose |
+| :--- | :--- | :--- |
+| `trg_check_seat_overlap` | `RESERVATION`, before insert | No seat can be given twice for overlapping stops; RAC only on a side-lower berth, at most 2 per berth |
+| `trg_after_cancellation_promote` | `CANCELLATION`, after insert | Calls `sp_promote_passenger` for the freed seat |
+| `trg_refund_cap` | `REFUND`, before insert | A payment cannot be refunded for more than it paid |
+| `trg_audit_fare_change` | `FARE`, after update | Writes `AUDIT_LOG` |
+| `trg_audit_concession_change` | `CONCESSION_RULE`, after update | Writes `AUDIT_LOG` |
+| `trg_audit_refund_rule_change` | `REFUND_RULE`, after update | Writes `AUDIT_LOG` |
+| `trg_audit_setting_change` | `SETTING`, after update | Writes `AUDIT_LOG` |
+| `trg_validate_setting_insert` | `SETTING`, before insert | Refuses a bad value (`INVALID_SETTING_VALUE`) |
+| `trg_validate_setting_update` | `SETTING`, before update | Refuses a bad value (`INVALID_SETTING_VALUE`) |
+
+### 5.5 Identity columns
+`AUTO_INCREMENT`: `RESERVATION.res_id`, `PAYMENT.payment_id`, `REFUND.refund_id`, `CANCELLATION.cancel_id`, `TICKET_VERIFICATION.verify_id`, `CHART_SNAPSHOT.snapshot_id` and `AUDIT_LOG.log_id`.
+
+## Changes of the final round (Prompt 15)
+
+- **No table or column changed.** Rule changes are inside procedures: `sp_create_booking` step 2f (Tatkal needs `USER_ACCOUNT.aadhaar_verified = 1`, or at the counter an AADHAAR proof on one passenger, error `AADHAAR_REQUIRED`) and step 3 (the monthly limit uses `v_as_of = COALESCE(@as_of_time, NOW())`).
+- **Seed data:** `USER_ACCOUNT` demo rows 50001 (`passenger@rrms.in`), 50002 (`chain@rrms.in`, Aadhaar verified), 50007 (`admin@rrms.in`); all seeded passengers, staff and the admin use the scrypt hash of `Demo@123` (salt `salt_user_<id>`). `STAFF_ASSIGNMENT` has three standing `COUNTER_DUTY` rows (staff 1, 2, 3; 2026-01-01 to 2036-12-31).
+- **`AUDIT_LOG`** now also receives `UPDATE_SCHEDULE_DELAY` and `CLEAR_SCHEDULE_DELAY` rows (table `TRAIN_SCHEDULE`) written by the admin delay route.
+- **`npm run demo:clear`** deletes in this order: `REFUND`, `CHART_SNAPSHOT`, `SEAT_HOLD`, `TICKET_VERIFICATION`, `TDR_FILING`, `CANCELLATION`, `PAYMENT`, `PAYMENT_ORDER`, `RESERVATION`, `PASSENGER_BOOKING`, `BOOKING`, then resets `SCHEDULE_CLASS_INVENTORY` (available = total, RAC 0, WL 0) and `TRAIN_SCHEDULE.chart_prepared_at`.

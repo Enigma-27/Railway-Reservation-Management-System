@@ -4,6 +4,7 @@ const apiRoutes = require('./routes');
 const { errorHandler } = require('./middleware/errorHandler');
 const { authenticate } = require('./middleware/auth');
 const { getMe } = require('./controllers/authController');
+const { razorpayWebhook } = require('./controllers/paymentController');
 
 const path = require('path');
 
@@ -11,6 +12,11 @@ const app = express();
 
 // Middleware
 app.use(cors());
+
+// Razorpay webhook: the signature is over the RAW body, so this route gets express.raw and must be
+// mounted BEFORE express.json(). Every other route is unchanged.
+app.post('/api/payments/razorpay/webhook', express.raw({ type: '*/*', limit: '1mb' }), razorpayWebhook);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));

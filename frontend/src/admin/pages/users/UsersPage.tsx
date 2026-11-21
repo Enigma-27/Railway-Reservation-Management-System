@@ -52,8 +52,10 @@ export const UsersPage: React.FC = () => {
       await userService.updateUserStatus(statusActionUser.userId, statusActionTarget, reason);
       await loadUsers();
       setStatusActionUser(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to update user status:', err);
+      alert(err?.message || 'Failed to update the account status.');
+      setStatusActionUser(null);
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -106,13 +108,29 @@ export const UsersPage: React.FC = () => {
           >
             <Eye className="w-4 h-4" />
           </button>
-          <button
-            disabled
-            title="This feature is not available yet."
-            className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed"
-          >
-            <span>This feature is not available yet.</span>
-          </button>
+          {row.role === 'ADMIN' ? (
+            <button
+              disabled
+              title="Administrator accounts cannot be changed here."
+              className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed"
+            >
+              <span>Admin account</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setStatusActionUser(row);
+                setStatusActionTarget(row.accountStatus === 'SUSPENDED' ? 'ACTIVE' : 'SUSPENDED');
+              }}
+              className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors ${
+                row.accountStatus === 'SUSPENDED'
+                  ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                  : 'border-rose-200 text-rose-700 hover:bg-rose-50'
+              }`}
+            >
+              <span>{row.accountStatus === 'SUSPENDED' ? 'Reactivate' : 'Suspend'}</span>
+            </button>
+          )}
         </div>
       ),
     },

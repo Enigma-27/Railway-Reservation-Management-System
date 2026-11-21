@@ -103,7 +103,9 @@ function mapRefundRule(r) {
     maxHours: r.max_hours !== null ? r.max_hours : null,
     deductionPct: parseFloat(r.deduction_pct),
     flatMinCharge: parseFloat(r.flat_min_charge),
-    clerkage: parseFloat(r.clerkage)
+    clerkage: parseFloat(r.clerkage),
+    // null = a general rule for every class; a number = a rule for that class only (a class rule wins over a general rule)
+    classId: r.class_id !== undefined && r.class_id !== null ? r.class_id : null
   };
 }
 
@@ -1343,7 +1345,11 @@ async function updateFare(req, res, next) {
     const updatedClass = classId !== undefined ? Number(classId) : oldRow.class_id;
     const updatedMin = minDistanceKm !== undefined ? Number(minDistanceKm) : oldRow.min_distance_km;
     const updatedMax = maxDistanceKm !== undefined ? Number(maxDistanceKm) : oldRow.max_distance_km;
-    const updatedRate = ratePerKm !== undefined ? parseFloat(ratePerKm) : parseFloat(oldRow.rate_per_km);
+    const updatedRate = ratePerKm !== undefined ? Number(ratePerKm) : parseFloat(oldRow.rate_per_km);
+    if (!Number.isFinite(updatedMin) || !Number.isFinite(updatedMax) || !Number.isFinite(updatedRate)
+        || updatedMin < 0 || updatedMax <= updatedMin || updatedRate <= 0) {
+      throw new AppError('VALIDATION_ERROR', 'Invalid distance slab or ratePerKm', 400);
+    }
 
     // Update FARE directly in MySQL; trigger trg_audit_fare_change automatically creates AUDIT_LOG row
     await pool.query(
@@ -1387,6 +1393,8 @@ async function deleteFare(req, res, next) {
 // =============================================================================
 
 const VALID_CONC_TYPES = ['NONE', 'DIVYAANG', 'SENIOR_CITIZEN'];
+// The fare function looks for the rule of the train group: STANDARD, or PREMIUM for Rajdhani, Shatabdi, Duronto and Vande Bharat trains
+const VALID_TRAIN_GROUPS = ['STANDARD', 'PREMIUM'];
 
 async function listConcessionRules(req, res, next) {
   try {
@@ -1426,16 +1434,19 @@ async function getConcessionRule(req, res, next) {
 async function createConcessionRule(req, res, next) {
   let conn;
   try {
-    const { concessionType, classId, trainGroup = 'ALL', discountPct, proofTypes = [], isActive = true } = req.body;
+    const { concessionType, classId, trainGroup = 'STANDARD', discountPct, proofTypes = [], isActive = true } = req.body;
     if (!concessionType || !classId || discountPct === undefined) {
       throw new AppError('VALIDATION_ERROR', 'concessionType, classId, and discountPct are required', 400);
     }
     if (!VALID_CONC_TYPES.includes(concessionType)) {
       throw new AppError('VALIDATION_ERROR', `Invalid concessionType: ${concessionType}`, 400);
     }
-    const discount = parseFloat(discountPct);
-    if (isNaN(discount) || discount < 0 || discount > 100) {
+    const discount = Number(discountPct);
+    if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
       throw new AppError('VALIDATION_ERROR', 'discountPct must be between 0 and 100', 400);
+    }
+    if (!VALID_TRAIN_GROUPS.includes(String(trainGroup).trim())) {
+      throw new AppError('VALIDATION_ERROR', `trainGroup must be one of: ${VALID_TRAIN_GROUPS.join(', ')}`, 400);
     }
 
     conn = await pool.getConnection();
@@ -1489,8 +1500,17 @@ async function updateConcessionRule(req, res, next) {
     const updatedType = concessionType !== undefined ? concessionType : oldRow.concession_type;
     const updatedClass = classId !== undefined ? Number(classId) : oldRow.class_id;
     const updatedGroup = trainGroup !== undefined ? String(trainGroup).trim() : oldRow.train_group;
-    const updatedDiscount = discountPct !== undefined ? parseFloat(discountPct) : parseFloat(oldRow.discount_pct);
+    const updatedDiscount = discountPct !== undefined ? Number(discountPct) : parseFloat(oldRow.discount_pct);
     const updatedActive = isActive !== undefined ? (isActive ? 1 : 0) : oldRow.is_active;
+    if (!VALID_CONC_TYPES.includes(updatedType)) {
+      throw new AppError('VALIDATION_ERROR', `Invalid concessionType: ${updatedType}`, 400);
+    }
+    if (!Number.isFinite(updatedDiscount) || updatedDiscount < 0 || updatedDiscount > 100) {
+      throw new AppError('VALIDATION_ERROR', 'discountPct must be between 0 and 100', 400);
+    }
+    if (!VALID_TRAIN_GROUPS.includes(updatedGroup)) {
+      throw new AppError('VALIDATION_ERROR', `trainGroup must be one of: ${VALID_TRAIN_GROUPS.join(', ')}`, 400);
+    }
     let updatedProof = oldRow.proof_types;
     if (proofTypes !== undefined) {
       updatedProof = Array.isArray(proofTypes) ? proofTypes : [proofTypes];
@@ -1546,7 +1566,7 @@ async function deleteConcessionRule(req, res, next) {
 async function listRefundRules(req, res, next) {
   try {
     const [rows] = await pool.query(
-      'SELECT rule_id, min_hours, max_hours, deduction_pct, flat_min_charge, clerkage FROM REFUND_RULE ORDER BY rule_id ASC'
+      'SELECT rule_id, class_id, min_hours, max_hours, deduction_pct, flat_min_charge, clerkage FROM REFUND_RULE ORDER BY rule_id ASC'
     );
     return res.status(200).json({ success: true, data: rows.map(mapRefundRule) });
   } catch (err) {
@@ -1559,7 +1579,7 @@ async function getRefundRule(req, res, next) {
     const { id } = req.params;
     const numId = Number(id);
     const [rows] = await pool.query(
-      'SELECT rule_id, min_hours, max_hours, deduction_pct, flat_min_charge, clerkage FROM REFUND_RULE WHERE rule_id = ?',
+      'SELECT rule_id, class_id, min_hours, max_hours, deduction_pct, flat_min_charge, clerkage FROM REFUND_RULE WHERE rule_id = ?',
       [numId]
     );
     if (rows.length === 0) {
@@ -1571,6 +1591,38 @@ async function getRefundRule(req, res, next) {
   }
 }
 
+/**
+ * Checks a refund rule before it is saved (the database has the same CHECK constraints as a second line of defence).
+ * Throws a 400 AppError with a plain message.
+ */
+function validateRefundRuleValues({ minH, maxH, pct, flat, clerk }) {
+  const okNum = (n) => typeof n === 'number' && Number.isFinite(n);
+  if (!Number.isInteger(minH) || minH < 0) {
+    throw new AppError('VALIDATION_ERROR', 'minHours must be a whole number, 0 or more', 400);
+  }
+  if (maxH !== null && (!Number.isInteger(maxH) || maxH <= minH)) {
+    throw new AppError('VALIDATION_ERROR', 'maxHours must be a whole number above minHours (or empty)', 400);
+  }
+  if (!okNum(pct) || pct < 0 || pct > 100) {
+    throw new AppError('VALIDATION_ERROR', 'deductionPct must be a number from 0 to 100', 400);
+  }
+  if (!okNum(flat) || flat < 0 || flat > 100000) {
+    throw new AppError('VALIDATION_ERROR', 'flatMinCharge must be a number from 0 to 100000', 400);
+  }
+  if (!okNum(clerk) || clerk < 0 || clerk > 100000) {
+    throw new AppError('VALIDATION_ERROR', 'clerkage must be a number from 0 to 100000', 400);
+  }
+}
+
+function parseOptionalClassId(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new AppError('VALIDATION_ERROR', 'classId must be a seat class id or empty (empty = all classes)', 400);
+  }
+  return n;
+}
+
 async function createRefundRule(req, res, next) {
   let conn;
   try {
@@ -1578,26 +1630,33 @@ async function createRefundRule(req, res, next) {
     if (minHours === undefined || deductionPct === undefined) {
       throw new AppError('VALIDATION_ERROR', 'minHours and deductionPct are required', 400);
     }
-    const minH = parseInt(minHours, 10);
-    const maxH = maxHours !== null && maxHours !== undefined ? parseInt(maxHours, 10) : null;
-    const pct = parseFloat(deductionPct);
-    const flat = parseFloat(flatMinCharge);
-    const clerk = parseFloat(clerkage);
-
-    if (isNaN(minH) || isNaN(pct) || pct < 0 || pct > 100) {
-      throw new AppError('VALIDATION_ERROR', 'Invalid minHours or deductionPct', 400);
-    }
+    const classId = parseOptionalClassId(req.body.classId);
+    const minH = Number(minHours);
+    const maxH = maxHours !== null && maxHours !== undefined && maxHours !== '' ? Number(maxHours) : null;
+    const pct = Number(deductionPct);
+    const flat = Number(flatMinCharge);
+    const clerk = Number(clerkage);
+    validateRefundRuleValues({ minH, maxH, pct, flat, clerk });
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
+
+    // One rule per class and slab: two rules with the same class and min_hours would be ambiguous
+    const [dup] = await conn.query(
+      'SELECT rule_id FROM REFUND_RULE WHERE min_hours = ? AND (class_id <=> ?) FOR UPDATE',
+      [minH, classId]
+    );
+    if (dup.length > 0) {
+      throw new AppError('CONFLICT', 'A refund rule for this class and slab (minHours) already exists. Edit that rule instead.', 409);
+    }
 
     const [maxRows] = await conn.query('SELECT COALESCE(MAX(rule_id), 0) + 1 AS next_id FROM REFUND_RULE FOR UPDATE');
     const newRuleId = maxRows[0].next_id;
 
     await conn.query(
-      `INSERT INTO REFUND_RULE (rule_id, min_hours, max_hours, deduction_pct, flat_min_charge, clerkage)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [newRuleId, minH, maxH, pct, flat, clerk]
+      `INSERT INTO REFUND_RULE (rule_id, class_id, min_hours, max_hours, deduction_pct, flat_min_charge, clerkage)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [newRuleId, classId, minH, maxH, pct, flat, clerk]
     );
 
     // Node writes NO audit row; trigger trg_audit_refund_rule_change handles auditing
@@ -1607,6 +1666,7 @@ async function createRefundRule(req, res, next) {
       success: true,
       data: {
         ruleId: newRuleId,
+        classId,
         minHours: minH,
         maxHours: maxH,
         deductionPct: pct,
@@ -1633,23 +1693,34 @@ async function updateRefundRule(req, res, next) {
     const oldRow = existing[0];
 
     const { minHours, maxHours, deductionPct, flatMinCharge, clerkage } = req.body;
-    const updatedMin = minHours !== undefined ? parseInt(minHours, 10) : oldRow.min_hours;
-    const updatedMax = maxHours !== undefined ? (maxHours !== null ? parseInt(maxHours, 10) : null) : oldRow.max_hours;
-    const updatedPct = deductionPct !== undefined ? parseFloat(deductionPct) : parseFloat(oldRow.deduction_pct);
-    const updatedFlat = flatMinCharge !== undefined ? parseFloat(flatMinCharge) : parseFloat(oldRow.flat_min_charge);
-    const updatedClerk = clerkage !== undefined ? parseFloat(clerkage) : parseFloat(oldRow.clerkage);
+    const updatedClass = req.body.classId !== undefined ? parseOptionalClassId(req.body.classId) : (oldRow.class_id !== undefined ? oldRow.class_id : null);
+    const updatedMin = minHours !== undefined ? Number(minHours) : oldRow.min_hours;
+    const updatedMax = maxHours !== undefined ? (maxHours !== null && maxHours !== '' ? Number(maxHours) : null) : oldRow.max_hours;
+    const updatedPct = deductionPct !== undefined ? Number(deductionPct) : parseFloat(oldRow.deduction_pct);
+    const updatedFlat = flatMinCharge !== undefined ? Number(flatMinCharge) : parseFloat(oldRow.flat_min_charge);
+    const updatedClerk = clerkage !== undefined ? Number(clerkage) : parseFloat(oldRow.clerkage);
+    validateRefundRuleValues({ minH: updatedMin, maxH: updatedMax, pct: updatedPct, flat: updatedFlat, clerk: updatedClerk });
+
+    const [dup] = await pool.query(
+      'SELECT rule_id FROM REFUND_RULE WHERE min_hours = ? AND (class_id <=> ?) AND rule_id <> ?',
+      [updatedMin, updatedClass, numId]
+    );
+    if (dup.length > 0) {
+      throw new AppError('CONFLICT', 'Another refund rule for this class and slab (minHours) already exists.', 409);
+    }
 
     // Update in MySQL; trigger trg_audit_refund_rule_change automatically records into AUDIT_LOG
     await pool.query(
-      `UPDATE REFUND_RULE SET min_hours = ?, max_hours = ?, deduction_pct = ?, flat_min_charge = ?, clerkage = ?
+      `UPDATE REFUND_RULE SET class_id = ?, min_hours = ?, max_hours = ?, deduction_pct = ?, flat_min_charge = ?, clerkage = ?
        WHERE rule_id = ?`,
-      [updatedMin, updatedMax, updatedPct, updatedFlat, updatedClerk, numId]
+      [updatedClass, updatedMin, updatedMax, updatedPct, updatedFlat, updatedClerk, numId]
     );
 
     return res.status(200).json({
       success: true,
       data: {
         ruleId: numId,
+        classId: updatedClass,
         minHours: updatedMin,
         maxHours: updatedMax,
         deductionPct: updatedPct,

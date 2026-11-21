@@ -1,4 +1,4 @@
-import { API_CONFIG } from '../config/api.config';
+import { isServiceMock } from '../config/api.config';
 import { httpRequest } from './http.client';
 import { simulateLatency } from './mock.client';
 
@@ -20,7 +20,7 @@ const MOCK_REFUND_RULES: RefundRule[] = [
 
 export const refundRuleService = {
   async getRefundRules(): Promise<RefundRule[]> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       return [...MOCK_REFUND_RULES];
     }
@@ -28,7 +28,7 @@ export const refundRuleService = {
   },
 
   async getRefundRule(id: number): Promise<RefundRule> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const r = MOCK_REFUND_RULES.find((x) => x.ruleId === id);
       if (!r) throw new Error(`Refund rule #${id} not found.`);
@@ -38,7 +38,7 @@ export const refundRuleService = {
   },
 
   async createRefundRule(payload: Omit<RefundRule, 'ruleId'>): Promise<RefundRule> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const newId = Math.max(...MOCK_REFUND_RULES.map((c) => c.ruleId), 0) + 1;
       const created: RefundRule = { ruleId: newId, ...payload };
@@ -52,7 +52,7 @@ export const refundRuleService = {
   },
 
   async updateRefundRule(id: number, payload: Partial<Omit<RefundRule, 'ruleId'>>): Promise<RefundRule> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const idx = MOCK_REFUND_RULES.findIndex((c) => c.ruleId === id);
       if (idx === -1) throw new Error(`Refund rule #${id} not found.`);
@@ -67,7 +67,7 @@ export const refundRuleService = {
   },
 
   async deleteRefundRule(id: number): Promise<void> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const idx = MOCK_REFUND_RULES.findIndex((c) => c.ruleId === id);
       if (idx !== -1) MOCK_REFUND_RULES.splice(idx, 1);

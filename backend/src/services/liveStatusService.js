@@ -85,7 +85,12 @@ async function getScheduleLiveStatus(scheduleId) {
   const journeyDateStr = formatIndiaDate(sched.journey_date);
 
   let mongoDoc = null;
-  const db = await getOrConnectMongoDb();
+  let db = null;
+  try {
+    db = await getOrConnectMongoDb();
+  } catch (_) {
+    db = null; // MongoDB unavailable: answer from the MySQL schedule row instead
+  }
   if (db) {
     mongoDoc = await db.collection('live_train_status').findOne({
       $or: [{ schedule_id: numScheduleId }, { scheduleId: numScheduleId }]

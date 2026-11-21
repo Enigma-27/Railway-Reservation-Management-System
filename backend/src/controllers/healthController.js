@@ -1,10 +1,20 @@
 const pool = require('../config/mysql');
 const { getMongoDb, connectMongo } = require('../config/mongodb');
+const { formatIndiaDateTime } = require('../utils/dateUtils');
+
+// Raw error text is shown only in development; otherwise a short fixed message is returned
+// and the real error is logged on the server.
+function safeErrorMessage(label, err) {
+  console.error(`[HEALTH] ${label} check failed:`, err && err.message ? err.message : err);
+  return process.env.NODE_ENV === 'development'
+    ? (err && err.message ? err.message : 'Unknown error')
+    : 'Service check failed';
+}
 
 async function getHealth(req, res, next) {
   const health = {
     status: 'UP',
-    timestamp: new Date().toISOString(),
+    timestamp: formatIndiaDateTime(new Date()),
     services: {
       mysql: { status: 'UNKNOWN' },
       mongodb: { status: 'UNKNOWN' }
@@ -26,7 +36,7 @@ async function getHealth(req, res, next) {
       allHealthy = false;
     }
   } catch (err) {
-    health.services.mysql = { status: 'DOWN', error: err.message };
+    health.services.mysql = { status: 'DOWN', error: safeErrorMessage('MySQL', err) };
     allHealthy = false;
   }
 
@@ -47,7 +57,7 @@ async function getHealth(req, res, next) {
       allHealthy = false;
     }
   } catch (err) {
-    health.services.mongodb = { status: 'DOWN', error: err.message };
+    health.services.mongodb = { status: 'DOWN', error: safeErrorMessage('MongoDB', err) };
     allHealthy = false;
   }
 

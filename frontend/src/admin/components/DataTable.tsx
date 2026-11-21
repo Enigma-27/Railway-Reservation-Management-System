@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { Skeleton } from '../../ui/Skeleton';
+import { EmptyState } from '../../ui/EmptyState';
 import { Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, AlertCircle, RefreshCw } from 'lucide-react';
 
 export interface Column<T> {
@@ -98,124 +100,82 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-[#e2e8f0] shadow-[0_4px_20px_rgba(15,23,42,0.03)] overflow-hidden flex flex-col w-full">
-      {/* Table Toolbar */}
-      <div className="p-4 sm:p-4 border-b border-[#f1f5f9] flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between bg-white">
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+    <div className="dt">
+      <div className="dt-bar">
+        <div className="dt-search">
+          <Search className="w-3.5 h-3.5" aria-hidden="true" />
           <input
-            type="text"
+            type="search"
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setCurrentPage(1);
-            }}
+            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
             placeholder={searchPlaceholder}
-            className="form-input pl-9"
+            aria-label={searchPlaceholder}
+            className="form-input"
           />
         </div>
-        {extraHeaderActions && <div className="flex items-center gap-2">{extraHeaderActions}</div>}
+        {extraHeaderActions && <div className="flex items-center gap-2 flex-wrap">{extraHeaderActions}</div>}
       </div>
 
-      {/* Table Content */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse text-xs">
+      <div className="dt-scroll">
+        <table className="dt-table">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-500 font-bold text-[11px] tracking-wider uppercase">
-              {columns.map((col, idx) => (
-                <th
-                  key={idx}
-                  onClick={() => col.sortable && col.accessorKey && handleSort(col.accessorKey)}
-                  className={`px-4 py-3 ${col.sortable ? 'cursor-pointer select-none hover:bg-slate-100/80 transition-colors' : ''} ${
-                    col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
-                  }`}
-                >
-                  <div className={`inline-flex items-center gap-1.5 ${col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start'}`}>
-                    <span>{col.header}</span>
-                    {col.sortable && (
-                      <span className="text-slate-400">
-                        {sortKey === col.accessorKey ? (
-                          sortDirection === 'asc' ? (
-                            <ArrowUp className="w-3.5 h-3.5 text-[#2259c2]" />
-                          ) : (
-                            <ArrowDown className="w-3.5 h-3.5 text-[#2259c2]" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 opacity-40 hover:opacity-100" />
-                        )}
-                      </span>
+            <tr>
+              {columns.map((col, idx) => {
+                const active = sortKey === col.accessorKey;
+                const cls = col.align === 'right' ? 'r' : col.align === 'center' ? 'c' : '';
+                const canSort = !!(col.sortable && col.accessorKey);
+                return (
+                  <th key={idx} scope="col" className={cls} aria-sort={canSort ? (active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}>
+                    {canSort ? (
+                      <button type="button" className="dt-sort" onClick={() => handleSort(col.accessorKey)}>
+                        <span>{col.header}</span>
+                        {active ? (sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5" aria-hidden="true" /> : <ArrowDown className="w-3.5 h-3.5" aria-hidden="true" />) : <ArrowUpDown className="w-3 h-3 opacity-50" aria-hidden="true" />}
+                      </button>
+                    ) : (
+                      <span>{col.header}</span>
                     )}
-                  </div>
-                </th>
-              ))}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {error ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-12 text-center text-slate-500">
-                  <div className="flex flex-col items-center justify-center gap-3">
-                    <div className="p-3 rounded-full bg-rose-50 text-rose-600 border border-rose-200">
-                      <AlertCircle className="w-6 h-6" />
+                <td colSpan={columns.length}>
+                  <div className="dt-state">
+                    <div className="rrms-alert-error" role="alert" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <AlertCircle className="w-4 h-4" aria-hidden="true" /> {error}
                     </div>
-                    <div className="max-w-md">
-                      <p className="text-sm font-bold text-rose-800">{error}</p>
-                      <p className="text-xs text-slate-400 mt-1">An error occurred while communicating with the railway service.</p>
-                    </div>
+                    <p className="text-body-sm" style={{ marginTop: 8 }}>An error occurred while communicating with the railway service.</p>
                     {onRetry && (
-                      <button
-                        onClick={onRetry}
-                        className="mt-1 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Retry Request</span>
+                      <button type="button" onClick={onRetry} className="btn-ghost" style={{ marginTop: 10 }}>
+                        <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" /> Retry
                       </button>
                     )}
                   </div>
                 </td>
               </tr>
             ) : loading ? (
-              Array.from({ length: 5 }).map((_, rIdx) => (
-                <tr key={rIdx} className="animate-pulse">
+              Array.from({ length: 6 }).map((_, rIdx) => (
+                <tr key={rIdx} aria-hidden="true">
                   {columns.map((_, cIdx) => (
-                    <td key={cIdx} className="px-4 py-3.5">
-                      <div className="h-4 bg-slate-100 rounded w-3/4"></div>
-                    </td>
+                    <td key={cIdx}><Skeleton h={14} w={cIdx % 3 === 0 ? '55%' : '80%'} /></td>
                   ))}
                 </tr>
               ))
             ) : paginatedData.length === 0 ? (
-
               <tr>
-                <td colSpan={columns.length} className="px-4 py-12 text-center text-slate-500">
-                  <div className="flex flex-col items-center justify-center">
-                    <p className="text-sm font-semibold text-slate-700">{emptyMessage}</p>
-                    {searchQuery && (
-                      <p className="text-xs text-slate-400 mt-1">
-                        Try adjusting your search criteria or resetting filters.
-                      </p>
-                    )}
-                  </div>
+                <td colSpan={columns.length}>
+                  <EmptyState art={searchQuery ? 'search' : 'ticket'} title={searchQuery ? 'Nothing matches your search' : emptyMessage} text={searchQuery ? 'Try other words or clear the search box.' : undefined} />
                 </td>
               </tr>
             ) : (
               paginatedData.map((row, rIdx) => (
-                <tr
-                  key={rIdx}
-                  className="hover:bg-blue-50/40 transition-colors group"
-                >
+                <tr key={rIdx}>
                   {columns.map((col, cIdx) => (
-                    <td
-                      key={cIdx}
-                      className={`px-4 py-3 text-slate-700 text-xs font-normal ${
-                        col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
-                      }`}
-                    >
-                      {col.cell
-                        ? col.cell(row)
-                        : col.accessorKey
-                        ? String(row[col.accessorKey] ?? '—')
-                        : '—'}
+                    <td key={cIdx} className={col.align === 'right' ? 'r' : col.align === 'center' ? 'c' : ''}>
+                      {col.cell ? col.cell(row) : col.accessorKey ? String(row[col.accessorKey] ?? '—') : '—'}
                     </td>
                   ))}
                 </tr>
@@ -225,33 +185,18 @@ export function DataTable<T extends Record<string, any>>({
         </table>
       </div>
 
-      {/* Pagination Footer */}
       {!loading && sortedData.length > 0 && (
-        <div className="px-4 py-3 border-t border-slate-200 bg-white flex items-center justify-between">
-          <div className="text-body-sm">
-            Showing <span className="font-semibold text-slate-700">{(currentPage - 1) * pageSize + 1}</span> to{' '}
-            <span className="font-semibold text-slate-700">
-              {Math.min(currentPage * pageSize, sortedData.length)}
-            </span>{' '}
-            of <span className="font-semibold text-slate-700">{sortedData.length}</span> records
+        <div className="dt-foot">
+          <div className="text-body-sm" role="status">
+            Showing <b>{(currentPage - 1) * pageSize + 1}</b> to <b>{Math.min(currentPage * pageSize, sortedData.length)}</b> of <b>{sortedData.length}</b> records
           </div>
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="btn-icon disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
+            <button type="button" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} aria-label="Previous page" className="btn-icon disabled:opacity-40 disabled:cursor-not-allowed">
+              <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
-            <span className="text-body-sm font-semibold text-slate-700 px-1.5">
-              {currentPage} / {totalPages}
-            </span>
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="btn-icon disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
+            <span className="text-body-sm mono" style={{ padding: '0 6px' }}>{currentPage} / {totalPages}</span>
+            <button type="button" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} aria-label="Next page" className="btn-icon disabled:opacity-40 disabled:cursor-not-allowed">
+              <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           </div>
         </div>

@@ -391,15 +391,15 @@ proc_label: BEGIN
         LEAVE proc_label;
     END IF;
 
-    SELECT COALESCE(MAX(verify_id), 0) + 1 INTO v_new_verify_id FROM TICKET_VERIFICATION;
-
     SET v_concession_match = IF(p_concession_checked = 1, p_result, 'NOT_APPLICABLE');
 
+    -- verify_id is AUTO_INCREMENT: two staff verifying at once can never get the same id
     INSERT INTO TICKET_VERIFICATION (
-        verify_id, staff_id, pnr, passenger_no, id_proof_match, concession_match, result, remarks, verified_at
+        staff_id, pnr, passenger_no, id_proof_match, concession_match, result, remarks, verified_at
     ) VALUES (
-        v_new_verify_id, p_staff_id, p_pnr, p_passenger_no, p_result, v_concession_match, p_result, p_remarks, NOW()
+        p_staff_id, p_pnr, p_passenger_no, p_result, v_concession_match, p_result, p_remarks, NOW()
     );
+    SET v_new_verify_id = LAST_INSERT_ID();
 
     IF p_manage_tx = 1 THEN
         COMMIT;
@@ -573,6 +573,23 @@ proc_label: BEGIN
     DECLARE v_ladies_cap INT DEFAULT 0;
     DECLARE v_divyaang_cap INT DEFAULT 0;
     DECLARE v_senior_cap INT DEFAULT 0;
+    DECLARE v_sched_status VARCHAR(20) DEFAULT NULL;
+    DECLARE v_as_of DATETIME;
+    DECLARE v_from_train INT DEFAULT NULL;
+    DECLARE v_to_train INT DEFAULT NULL;
+    DECLARE v_from_seq INT DEFAULT NULL;
+    DECLARE v_to_seq INT DEFAULT NULL;
+    DECLARE v_from_dep TIME DEFAULT NULL;
+    DECLARE v_from_off INT DEFAULT 0;
+    DECLARE v_boarding_dep DATETIME;
+    DECLARE v_window_days INT DEFAULT 7;
+    DECLARE v_e_age INT;
+    DECLARE v_e_gender VARCHAR(10);
+    DECLARE v_e_conc VARCHAR(20);
+    DECLARE v_e_ptype VARCHAR(32);
+    DECLARE v_e_pref VARCHAR(64);
+    DECLARE v_pnr_dup TINYINT DEFAULT 1;
+    DECLARE v_pnr_tries INT DEFAULT 0;
 
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
@@ -613,8 +630,8 @@ proc_label: BEGIN
     END IF;
 
     -- 2. Lock schedule and check Chart Prepared / Lockout (BR-B12a)
-    SELECT ts.chart_prepared_at, ts.journey_date, ts.departure_time, ts.train_id
-    INTO v_chart_prep, v_journey_date, v_dep_time, v_train_id
+    SELECT ts.chart_prepared_at, ts.journey_date, ts.departure_time, ts.train_id, ts.status
+    INTO v_chart_prep, v_journey_date, v_dep_time, v_train_id, v_sched_status
     FROM TRAIN_SCHEDULE ts
     WHERE ts.schedule_id = p_schedule_id
     FOR UPDATE;
@@ -625,8 +642,115 @@ proc_label: BEGIN
         LEAVE proc_label;
     END IF;
 
-    -- 3. Check Monthly ticket limit (BR-B15)
-    SET v_can_book = fn_check_monthly_ticket_limit(p_user_id, NOW());
+    -- 2a. The run itself must be running (BR-B5 TRAIN_NOT_RUNNING; a CANCELLED run takes no bookings)
+    IF v_sched_status = 'CANCELLED' THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_error_code = 'TRAIN_NOT_RUNNING';
+        LEAVE proc_label;
+    END IF;
+
+    -- 2b. From and to stops must both belong to this train, and the from stop must come first
+    SELECT train_id, stop_sequence, departure_time, day_offset
+    INTO v_from_train, v_from_seq, v_from_dep, v_from_off
+    FROM ROUTE_STOP WHERE stop_id = p_from_stop_id;
+
+    SELECT train_id, stop_sequence
+    INTO v_to_train, v_to_seq
+    FROM ROUTE_STOP WHERE stop_id = p_to_stop_id;
+
+    IF v_from_train IS NULL OR v_to_train IS NULL
+       OR v_from_train <> v_train_id OR v_to_train <> v_train_id
+       OR v_from_seq >= v_to_seq THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_error_code = 'INVALID_STOPS';
+        LEAVE proc_label;
+    END IF;
+
+    -- 2c. The train must not have left the boarding station yet (scheduled departure, India time).
+    --     "Now" is COALESCE(@as_of_time, NOW()) so the date-pinned tests keep working.
+    SET v_as_of = COALESCE(@as_of_time, NOW());
+    SET v_boarding_dep = TIMESTAMP(v_journey_date, v_from_dep) + INTERVAL v_from_off DAY;
+    IF v_boarding_dep <= v_as_of THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_error_code = 'JOURNEY_PAST';
+        LEAVE proc_label;
+    END IF;
+
+    -- 2d. Booking window (BR-B1): the boarding date may be at most BOOKING_WINDOW_DAYS days ahead
+    SELECT CAST(setting_value AS SIGNED) INTO v_window_days
+    FROM SETTING WHERE setting_key = 'BOOKING_WINDOW_DAYS';
+    IF v_window_days IS NULL THEN SET v_window_days = 7; END IF;
+    IF DATEDIFF(DATE(v_boarding_dep), DATE(v_as_of)) > v_window_days THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_error_code = 'OUTSIDE_BOOKING_WINDOW';
+        LEAVE proc_label;
+    END IF;
+
+    -- 2e. Concession proof (BR-C6) and quota eligibility (BR-Q2, BR-Q4, BR-Q5, BR-Q9, BR-Q14), per passenger.
+    --     Done before any seat is reserved, so a refusal leaves nothing to undo.
+    SET v_idx = 0;
+    WHILE v_idx < v_pass_count DO
+        SET v_e_age = COALESCE(JSON_EXTRACT(p_passengers, CONCAT('$[', v_idx, '].age')), 0);
+        SET v_e_gender = JSON_UNQUOTE(JSON_EXTRACT(p_passengers, CONCAT('$[', v_idx, '].gender')));
+        SET v_e_conc = JSON_UNQUOTE(JSON_EXTRACT(p_passengers, CONCAT('$[', v_idx, '].concession_type')));
+        IF v_e_conc IS NULL OR v_e_conc = 'null' OR v_e_conc = '' THEN SET v_e_conc = 'NONE'; END IF;
+        SET v_e_ptype = JSON_UNQUOTE(JSON_EXTRACT(p_passengers, CONCAT('$[', v_idx, '].concession_proof_type')));
+        IF v_e_ptype = 'null' OR TRIM(v_e_ptype) = '' THEN SET v_e_ptype = NULL; END IF;
+        SET v_e_pref = JSON_UNQUOTE(JSON_EXTRACT(p_passengers, CONCAT('$[', v_idx, '].concession_proof_ref')));
+        IF v_e_pref = 'null' OR TRIM(v_e_pref) = '' THEN SET v_e_pref = NULL; END IF;
+
+        -- Any concession other than NONE needs a proof type and a proof reference
+        IF v_e_conc <> 'NONE' AND (v_e_ptype IS NULL OR v_e_pref IS NULL) THEN
+            IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+            SET p_out_error_code = 'CONCESSION_PROOF_REQUIRED';
+            LEAVE proc_label;
+        END IF;
+
+        -- LADIES: every passenger aged 12 or more must be FEMALE (OTHER is not eligible)
+        IF p_quota = 'LADIES' AND v_e_age >= 12 AND COALESCE(v_e_gender, '') <> 'FEMALE' THEN
+            IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+            SET p_out_error_code = 'QUOTA_NOT_ELIGIBLE';
+            LEAVE proc_label;
+        END IF;
+
+        -- SENIOR_CITIZEN: women from SENIOR_AGE_FEMALE (default 45), men and OTHER from SENIOR_AGE_MALE (default 60)
+        IF p_quota = 'SENIOR_CITIZEN' AND NOT (
+               (v_e_gender = 'FEMALE' AND v_e_age >= CAST(fn_get_setting('SENIOR_AGE_FEMALE', '45') AS SIGNED))
+            OR (COALESCE(v_e_gender, '') <> 'FEMALE' AND v_e_age >= CAST(fn_get_setting('SENIOR_AGE_MALE', '60') AS SIGNED))
+        ) THEN
+            IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+            SET p_out_error_code = 'QUOTA_NOT_ELIGIBLE';
+            LEAVE proc_label;
+        END IF;
+
+        -- DIVYAANG: every passenger needs disability proof (type and reference)
+        IF p_quota = 'DIVYAANG' AND (v_e_ptype IS NULL OR v_e_pref IS NULL) THEN
+            IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+            SET p_out_error_code = 'QUOTA_NOT_ELIGIBLE';
+            LEAVE proc_label;
+        END IF;
+
+        SET v_idx = v_idx + 1;
+    END WHILE;
+
+    -- 2f. Tatkal needs an Aadhaar-verified account (BR-Q3, BR-Q6). At the counter (BR-CB5) the staff member enters an
+    --     Aadhaar ID proof for at least one passenger instead (the OTP step is simulated). Error code: AADHAAR_REQUIRED.
+    IF p_quota = 'TATKAL' THEN
+        IF p_channel = 'COUNTER' THEN
+            IF JSON_SEARCH(p_passengers, 'one', 'AADHAAR', NULL, '$[*].concession_proof_type') IS NULL THEN
+                IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+                SET p_out_error_code = 'AADHAAR_REQUIRED';
+                LEAVE proc_label;
+            END IF;
+        ELSEIF COALESCE((SELECT aadhaar_verified FROM USER_ACCOUNT WHERE user_id = p_user_id), 0) = 0 THEN
+            IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+            SET p_out_error_code = 'AADHAAR_REQUIRED';
+            LEAVE proc_label;
+        END IF;
+    END IF;
+
+    -- 3. Check Monthly ticket limit (BR-B15). "Now" is the project test clock COALESCE(@as_of_time, NOW()) (v_as_of).
+    SET v_can_book = fn_check_monthly_ticket_limit(p_user_id, v_as_of);
     IF v_can_book = 0 THEN
         IF p_manage_tx = 1 THEN ROLLBACK; END IF;
         SET p_out_error_code = 'MONTHLY_LIMIT_EXCEEDED';
@@ -727,22 +851,33 @@ proc_label: BEGIN
 
     SAVEPOINT sp_berth_check;
 
-    SET v_new_pnr = LPAD(FLOOR(RAND() * 8999999999 + 1000000000), 10, '0');
-    WHILE EXISTS (SELECT 1 FROM BOOKING WHERE pnr = v_new_pnr) DO
-        SET v_new_pnr = LPAD(FLOOR(RAND() * 8999999999 + 1000000000), 10, '0');
-    END WHILE;
-
     SET v_distance = fn_calculate_distance(p_from_stop_id, p_to_stop_id);
 
-    INSERT INTO BOOKING (
-        pnr, user_id, schedule_id, class_id, from_stop_id, to_stop_id,
-        channel, booked_by_staff_id, quota, requested_quota,
-        berth_condition, total_fare, status, created_at
-    ) VALUES (
-        v_new_pnr, p_user_id, p_schedule_id, p_class_id, p_from_stop_id, p_to_stop_id,
-        p_channel, p_staff_id, v_active_quota, v_requested_quota,
-        p_berth_condition, 0.00, 'PAYMENT_PENDING', COALESCE(@as_of_time, NOW())
-    );
+    -- PNR: a random 10-digit number. We do NOT look it up first (a "does it exist?" read takes a gap lock
+    -- and two bookings at the same time then block each other's insert). We insert, and if the PNR is
+    -- already taken (duplicate key) we draw a new one and try again.
+    SET v_pnr_dup = 1;
+    SET v_pnr_tries = 0;
+    WHILE v_pnr_dup = 1 AND v_pnr_tries < 20 DO
+        SET v_pnr_dup = 0;
+        SET v_pnr_tries = v_pnr_tries + 1;
+        SET v_new_pnr = LPAD(FLOOR(RAND() * 8999999999 + 1000000000), 10, '0');
+        pnr_insert: BEGIN
+            DECLARE CONTINUE HANDLER FOR 1062 SET v_pnr_dup = 1;
+            INSERT INTO BOOKING (
+                pnr, user_id, schedule_id, class_id, from_stop_id, to_stop_id,
+                channel, booked_by_staff_id, quota, requested_quota,
+                berth_condition, total_fare, status, created_at
+            ) VALUES (
+                v_new_pnr, p_user_id, p_schedule_id, p_class_id, p_from_stop_id, p_to_stop_id,
+                p_channel, p_staff_id, v_active_quota, v_requested_quota,
+                p_berth_condition, 0.00, 'PAYMENT_PENDING', COALESCE(@as_of_time, NOW())
+            );
+        END pnr_insert;
+    END WHILE;
+    IF v_pnr_dup = 1 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Could not allocate a free PNR';
+    END IF;
 
     SET v_idx = 0;
     WHILE v_idx < v_pass_count DO
@@ -761,7 +896,6 @@ proc_label: BEGIN
             DECLARE v_seat_berth VARCHAR(20) DEFAULT NULL;
             DECLARE v_pass_status VARCHAR(20) DEFAULT 'CONFIRMED';
             DECLARE v_queue_pos VARCHAR(16) DEFAULT NULL;
-            DECLARE v_res_id INT;
 
             SET v_p_saved_raw = JSON_UNQUOTE(JSON_EXTRACT(p_passengers, CONCAT('$[', v_idx, '].saved_passenger_id')));
             IF v_p_saved_raw IS NULL OR v_p_saved_raw = 'null' OR v_p_saved_raw = '' THEN
@@ -797,7 +931,7 @@ proc_label: BEGIN
                         AND r.status IN ('CONFIRMED', 'BOARDED')
                   )
                 ORDER BY
-                    CASE WHEN (v_p_age >= 60 AND s.berth_type = 'LOWER') THEN 1
+                    CASE WHEN (v_p_age >= CAST(fn_get_setting('SENIOR_AGE_MALE', '60') AS SIGNED) AND s.berth_type = 'LOWER') THEN 1
                          WHEN (v_p_berth_pref = s.berth_type) THEN 2
                          ELSE 3 END,
                     s.seat_id ASC
@@ -869,12 +1003,11 @@ proc_label: BEGIN
 
             SET v_total_booking_fare = v_total_booking_fare + JSON_EXTRACT(v_fare_json, '$.total_fare');
 
-            SELECT COALESCE(MAX(res_id), 0) + 1 INTO v_res_id FROM RESERVATION;
-
+            -- res_id is AUTO_INCREMENT: bookings on different runs at the same time never clash
             INSERT INTO RESERVATION (
-                res_id, pnr, passenger_no, schedule_id, seat_id, status, queue_position
+                pnr, passenger_no, schedule_id, seat_id, status, queue_position
             ) VALUES (
-                v_res_id, v_new_pnr, v_idx + 1, p_schedule_id, v_assigned_seat_id, v_pass_status, v_queue_pos
+                v_new_pnr, v_idx + 1, p_schedule_id, v_assigned_seat_id, v_pass_status, v_queue_pos
             );
 
         END passenger_block;
@@ -919,7 +1052,7 @@ CREATE PROCEDURE sp_cancel_passenger_ticket(
     IN p_manage_tx TINYINT(1),
     OUT p_out_charge DECIMAL(10,2),
     OUT p_out_refund_amount DECIMAL(10,2),
-    OUT p_out_status VARCHAR(20)
+    OUT p_out_status VARCHAR(32)
 )
 proc_label: BEGIN
     DECLARE v_active_count INT DEFAULT 0;
@@ -934,6 +1067,7 @@ proc_label: BEGIN
     DECLARE v_origin_departure DATETIME;
     DECLARE v_as_of DATETIME;
     DECLARE v_hours_left DECIMAL(10,2);
+    DECLARE v_planned_refund DECIMAL(10,2) DEFAULT 0.00;
     DECLARE done INT DEFAULT 0;
 
     DECLARE cur_pass_no INT;
@@ -989,14 +1123,47 @@ proc_label: BEGIN
         LEAVE proc_label;
     END IF;
 
-    SELECT payment_id INTO v_payment_id
-    FROM PAYMENT
-    WHERE pnr = p_pnr AND status = 'SUCCESS'
-    ORDER BY payment_id DESC
-    LIMIT 1;
+    -- Refunds go back to the original payment (never a late payment that was already refunded)
+    SET v_payment_id = fn_pick_refund_payment(p_pnr);
 
-    SELECT COALESCE(MAX(cancel_id), 0) INTO v_new_cancel_id FROM CANCELLATION;
-    SELECT COALESCE(MAX(refund_id), 0) INTO v_new_refund_id FROM REFUND;
+    -- Refund cap (a): a seat whose TDR was approved or refunded cannot also be cancelled the normal way,
+    -- or it would be refunded twice.
+    IF EXISTS (
+        SELECT 1 FROM TDR_FILING t
+        WHERE t.pnr = p_pnr
+          AND t.status IN ('APPROVED', 'REFUND_PROCESSED')
+          AND (t.passenger_no IS NULL OR EXISTS (
+                SELECT 1 FROM RESERVATION r2
+                WHERE r2.pnr = p_pnr AND r2.passenger_no = t.passenger_no
+                  AND r2.status <> 'CANCELLED'
+                  AND (p_passenger_no IS NULL OR r2.passenger_no = p_passenger_no)))
+    ) THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_charge = 0.00;
+        SET p_out_refund_amount = 0.00;
+        SET p_out_status = 'REFUND_EXCEEDS_PAYMENT';
+        LEAVE proc_label;
+    END IF;
+
+    -- Refund cap (b): the refunds this cancel would write must fit in what is left of the payment.
+    -- Choice here: refuse the whole cancel (nothing is changed) rather than shrink a passenger's refund.
+    IF v_payment_id IS NOT NULL THEN
+        SELECT COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                   fn_calculate_cancellation_refund(r.pnr, r.passenger_no, v_as_of), '$.refund_amount')) AS DECIMAL(10,2))), 0.00)
+        INTO v_planned_refund
+        FROM RESERVATION r
+        WHERE r.pnr = p_pnr
+          AND (p_passenger_no IS NULL OR r.passenger_no = p_passenger_no)
+          AND r.status <> 'CANCELLED';
+
+        IF v_planned_refund > fn_refund_room(v_payment_id) THEN
+            IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+            SET p_out_charge = 0.00;
+            SET p_out_refund_amount = 0.00;
+            SET p_out_status = 'REFUND_EXCEEDS_PAYMENT';
+            LEAVE proc_label;
+        END IF;
+    END IF;
 
     OPEN cur_pass;
     pass_loop: LOOP
@@ -1015,9 +1182,10 @@ proc_label: BEGIN
             SET v_total_charge = v_total_charge + v_p_charge;
             SET v_total_refund = v_total_refund + v_p_refund;
 
-            SET v_new_cancel_id = v_new_cancel_id + 1;
-            INSERT INTO CANCELLATION (cancel_id, pnr, passenger_no, reason, charge, cancelled_at)
-            VALUES (v_new_cancel_id, p_pnr, cur_pass_no, p_reason, v_p_charge, v_as_of);
+            -- cancel_id and refund_id are AUTO_INCREMENT (read back with LAST_INSERT_ID)
+            INSERT INTO CANCELLATION (pnr, passenger_no, reason, charge, cancelled_at)
+            VALUES (p_pnr, cur_pass_no, p_reason, v_p_charge, v_as_of);
+            SET v_new_cancel_id = LAST_INSERT_ID();
 
             UPDATE RESERVATION
             SET status = 'CANCELLED',
@@ -1026,9 +1194,8 @@ proc_label: BEGIN
             WHERE pnr = p_pnr AND passenger_no = cur_pass_no;
 
             IF v_payment_id IS NOT NULL AND v_p_refund > 0 THEN
-                SET v_new_refund_id = v_new_refund_id + 1;
-                INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
-                VALUES (v_new_refund_id, v_new_cancel_id, NULL, v_payment_id, v_p_refund, 'CANCELLATION', 'PROCESSED');
+                INSERT INTO REFUND (cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+                VALUES (v_new_cancel_id, NULL, v_payment_id, v_p_refund, 'CANCELLATION', 'PENDING');
             END IF;
         END cancel_single;
     END LOOP;
@@ -1066,7 +1233,6 @@ CREATE PROCEDURE sp_prepare_chart(
     OUT p_out_snapshot_count INT
 )
 proc_label: BEGIN
-    DECLARE v_new_snapshot_id INT DEFAULT 0;
     DECLARE v_new_refund_id INT DEFAULT 0;
     DECLARE done INT DEFAULT 0;
 
@@ -1077,6 +1243,8 @@ proc_label: BEGIN
     DECLARE cur_hold_res_status VARCHAR(20);
     DECLARE cur_hold_queue VARCHAR(16);
     DECLARE cur_hold_wl_num INT;
+    DECLARE v_wl_amount DECIMAL(10,2);
+    DECLARE v_wl_room DECIMAL(10,2);
 
     DECLARE cur_wl_pnr VARCHAR(10);
     DECLARE cur_wl_pass_no INT;
@@ -1087,16 +1255,18 @@ proc_label: BEGIN
         SELECT r.pnr, r.passenger_no, pb.total_fare, pb.insurance, p.payment_id
         FROM RESERVATION r
         JOIN PASSENGER_BOOKING pb ON r.pnr = pb.pnr AND r.passenger_no = pb.passenger_no
-        LEFT JOIN PAYMENT p ON r.pnr = p.pnr AND p.status = 'SUCCESS'
+        LEFT JOIN PAYMENT p ON p.payment_id = fn_pick_refund_payment(r.pnr)
         WHERE r.schedule_id = p_schedule_id AND r.status = 'WAITING_LIST';
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
 
+    -- Errors are no longer swallowed: undo what this call started, then pass the error to the caller
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
         IF p_manage_tx = 1 THEN
             ROLLBACK;
         END IF;
         SET p_out_snapshot_count = 0;
+        RESIGNAL;
     END;
 
     IF p_manage_tx = 1 THEN
@@ -1174,8 +1344,6 @@ proc_label: BEGIN
         WHERE sci.schedule_id = p_schedule_id AND sci.class_id = cur_hold_class_id;
     END WHILE;
 
-    SELECT COALESCE(MAX(refund_id), 0) INTO v_new_refund_id FROM REFUND;
-
     OPEN cur_wl;
     wl_loop: LOOP
         FETCH cur_wl INTO cur_wl_pnr, cur_wl_pass_no, cur_wl_fare, cur_wl_ins, cur_wl_pay_id;
@@ -1186,12 +1354,24 @@ proc_label: BEGIN
         WHERE pnr = cur_wl_pnr AND passenger_no = cur_wl_pass_no;
 
         IF cur_wl_pay_id IS NOT NULL THEN
-            SET v_new_refund_id = v_new_refund_id + 1;
-            INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
-            VALUES (
-                v_new_refund_id,
-                NULL, NULL, cur_wl_pay_id, cur_wl_fare - cur_wl_ins, 'WAITLIST_PURGE', 'PROCESSED'
-            );
+            -- Refund cap: the chart must always finish, so here the refund is reduced to what is
+            -- left of the payment (and skipped if nothing is left). A reduced refund is logged.
+            SET v_wl_amount = cur_wl_fare - cur_wl_ins;
+            SET v_wl_room = fn_refund_room(cur_wl_pay_id);
+            IF v_wl_amount > v_wl_room THEN
+                INSERT INTO AUDIT_LOG (user_id, action, table_name, record_id, old_value, new_value, logged_at)
+                VALUES (NULL, 'REFUND_CAPPED', 'PAYMENT', CAST(cur_wl_pay_id AS CHAR),
+                        JSON_OBJECT('wanted_refund', v_wl_amount),
+                        JSON_OBJECT('refund_given', v_wl_room, 'pnr', cur_wl_pnr, 'passenger_no', cur_wl_pass_no),
+                        COALESCE(@as_of_time, NOW()));
+                SET v_wl_amount = v_wl_room;
+            END IF;
+            IF v_wl_amount > 0 THEN
+                INSERT INTO REFUND (cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+                VALUES (
+                    NULL, NULL, cur_wl_pay_id, v_wl_amount, 'WAITLIST_PURGE', 'PENDING'
+                );
+            END IF;
         END IF;
     END LOOP;
     CLOSE cur_wl;
@@ -1201,14 +1381,12 @@ proc_label: BEGIN
     SET wl_count = 0
     WHERE schedule_id = p_schedule_id;
 
-    SELECT COALESCE(MAX(snapshot_id), 0) INTO v_new_snapshot_id FROM CHART_SNAPSHOT;
-
+    -- snapshot_id is AUTO_INCREMENT: two charts made at the same time never clash
     INSERT INTO CHART_SNAPSHOT (
-        snapshot_id, schedule_id, pnr, passenger_no, coach_no, seat_no,
+        schedule_id, pnr, passenger_no, coach_no, seat_no,
         berth_type, status, from_station_id, to_station_id, concession_flag, generated_at
     )
     SELECT
-        ROW_NUMBER() OVER (ORDER BY b.pnr, pb.passenger_no) + v_new_snapshot_id,
         p_schedule_id,
         b.pnr,
         pb.passenger_no,
@@ -1228,7 +1406,8 @@ proc_label: BEGIN
     LEFT JOIN SEAT s ON r.seat_id = s.seat_id
     LEFT JOIN COACH c ON s.coach_id = c.coach_id
     WHERE b.schedule_id = p_schedule_id
-      AND r.status IN ('CONFIRMED', 'RAC');
+      AND r.status IN ('CONFIRMED', 'RAC')
+    ORDER BY b.pnr, pb.passenger_no;
 
     SELECT COUNT(*) INTO p_out_snapshot_count
     FROM CHART_SNAPSHOT
@@ -1253,7 +1432,7 @@ CREATE PROCEDURE sp_process_late_payment_refund(
     IN p_gateway_id VARCHAR(64),
     IN p_manage_tx TINYINT(1),
     OUT p_out_refund_id INT,
-    OUT p_out_status VARCHAR(20)
+    OUT p_out_status VARCHAR(32)
 )
 proc_label: BEGIN
     DECLARE v_new_payment_id INT;
@@ -1271,15 +1450,22 @@ proc_label: BEGIN
         START TRANSACTION;
     END IF;
 
-    SELECT COALESCE(MAX(payment_id), 0) + 1 INTO v_new_payment_id FROM PAYMENT;
+    -- payment_id and refund_id are AUTO_INCREMENT
+    INSERT INTO PAYMENT (pnr, amount, method, status, gateway_payment_id, paid_at)
+    VALUES (p_pnr, p_amount, p_payment_method, 'SUCCESS', p_gateway_id, COALESCE(@as_of_time, NOW()));
+    SET v_new_payment_id = LAST_INSERT_ID();
 
-    INSERT INTO PAYMENT (payment_id, pnr, amount, method, status, gateway_payment_id, paid_at)
-    VALUES (v_new_payment_id, p_pnr, p_amount, p_payment_method, 'SUCCESS', p_gateway_id, COALESCE(@as_of_time, NOW()));
+    -- Refund cap: this refund is the whole new payment, so it only fails if refunds already exist for it
+    IF fn_refund_room(v_new_payment_id) < p_amount THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_refund_id = NULL;
+        SET p_out_status = 'REFUND_EXCEEDS_PAYMENT';
+        LEAVE proc_label;
+    END IF;
 
-    SELECT COALESCE(MAX(refund_id), 0) + 1 INTO v_new_refund_id FROM REFUND;
-
-    INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
-    VALUES (v_new_refund_id, NULL, NULL, v_new_payment_id, p_amount, 'PAYMENT_AFTER_EXPIRY', 'PROCESSED');
+    INSERT INTO REFUND (cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+    VALUES (NULL, NULL, v_new_payment_id, p_amount, 'PAYMENT_AFTER_EXPIRY', 'PENDING');
+    SET v_new_refund_id = LAST_INSERT_ID();
 
     UPDATE BOOKING
     SET status = 'FAILED'
@@ -1355,13 +1541,15 @@ proc_label: BEGIN
         LEAVE proc_label;
     END IF;
 
-    SELECT COALESCE(MAX(payment_id), 0) + 1 INTO v_new_payment_id FROM PAYMENT;
     INSERT INTO PAYMENT (
-        payment_id, pnr, amount, method, status, gateway_payment_id, paid_at
+        pnr, amount, method, status, gateway_payment_id, paid_at
     ) VALUES (
-        v_new_payment_id, v_pnr, v_fare, p_payment_method, 'SUCCESS',
-        CONCAT('counter_pay_', v_pnr, '_', v_new_payment_id), NOW()
+        v_pnr, v_fare, p_payment_method, 'SUCCESS',
+        CONCAT('counter_pay_', v_pnr, '_new'), NOW()
     );
+    SET v_new_payment_id = LAST_INSERT_ID();
+    UPDATE PAYMENT SET gateway_payment_id = CONCAT('counter_pay_', v_pnr, '_', v_new_payment_id)
+    WHERE payment_id = v_new_payment_id;
 
     IF p_manage_tx = 1 THEN
         COMMIT;
@@ -1499,13 +1687,12 @@ proc_label: BEGIN
             SET v_final_status = 'CONFIRMED';
         END IF;
 
-        SELECT COALESCE(MAX(payment_id), 0) + 1 INTO v_new_payment_id FROM PAYMENT;
-
         INSERT INTO PAYMENT (
-            payment_id, pnr, amount, method, status, gateway_payment_id, paid_at
+            pnr, amount, method, status, gateway_payment_id, paid_at
         ) VALUES (
-            v_new_payment_id, p_pnr, p_amount, p_payment_method, 'SUCCESS', p_gateway_id, v_as_of
+            p_pnr, p_amount, p_payment_method, 'SUCCESS', p_gateway_id, v_as_of
         );
+        SET v_new_payment_id = LAST_INSERT_ID();
 
         UPDATE BOOKING
         SET status = v_final_status
@@ -1616,19 +1803,40 @@ proc_label: BEGIN
     DECLARE v_cur_queue VARCHAR(16);
     DECLARE v_old_wl_num INT;
 
+    -- Still returns 0 on error, but now writes one AUDIT_LOG row with the error text so it can be seen.
+    -- The run lock (see below) is released on this path too.
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
+        DECLARE v_err_no INT DEFAULT NULL;
+        DECLARE v_err_text TEXT DEFAULT NULL;
+        GET DIAGNOSTICS CONDITION 1 v_err_no = MYSQL_ERRNO, v_err_text = MESSAGE_TEXT;
         IF p_manage_tx = 1 THEN
             ROLLBACK;
         END IF;
         SET p_out_released_count = 0;
+        BEGIN
+            DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN END;
+            INSERT INTO AUDIT_LOG (user_id, action, table_name, record_id, old_value, new_value, logged_at)
+            VALUES (NULL, 'RELEASE_HOLDS_FAILED', 'BOOKING', 'sp_release_expired_holds', NULL,
+                    JSON_OBJECT('mysql_errno', v_err_no, 'message', LEFT(COALESCE(v_err_text, ''), 500)),
+                    COALESCE(@as_of_time, NOW()));
+            IF p_manage_tx = 1 THEN
+                COMMIT;
+            END IF;
+        END;
+        DO RELEASE_LOCK('release_expired_holds');
     END;
+
+    -- Only one release run at a time (timer, createOrder, verifyPayment, reconcile can all call this).
+    -- A second caller returns 0 at once, so the same freed seat is never promoted twice.
+    SET p_out_released_count = 0;
+    IF COALESCE(GET_LOCK('release_expired_holds', 0), 0) <> 1 THEN
+        LEAVE proc_label;
+    END IF;
 
     IF p_manage_tx = 1 THEN
         START TRANSACTION;
     END IF;
-
-    SET p_out_released_count = 0;
 
     -- Read HOLD_MINUTES from SETTING
     SELECT CAST(setting_value AS SIGNED) INTO v_hold_minutes
@@ -1717,6 +1925,117 @@ proc_label: BEGIN
         COMMIT;
     END IF;
 
+    -- Release after the commit, so the next run sees the finished state
+    DO RELEASE_LOCK('release_expired_holds');
+
+END proc_label$$
+
+-- -----------------------------------------------------------------------------
+-- 9b. sp_cancel_unpaid_booking
+-- The passenger gives up a booking that is still PAYMENT_PENDING ("Cancel unpaid booking"). Same release work as
+-- sp_release_expired_holds, for ONE booking: every reservation is cancelled and the freed seats are promoted,
+-- the booking becomes FAILED (the same end state as an expired hold) and the inventory counters are re-synced.
+-- p_out_status: RELEASED, NOT_FOUND, FORBIDDEN (not the owner) or NOT_PENDING (already paid, released or cancelled).
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS sp_cancel_unpaid_booking$$
+CREATE PROCEDURE sp_cancel_unpaid_booking(
+    IN p_pnr VARCHAR(10),
+    IN p_user_id INT,
+    IN p_manage_tx TINYINT(1),
+    OUT p_out_status VARCHAR(20)
+)
+proc_label: BEGIN
+    DECLARE v_user_id INT DEFAULT NULL;
+    DECLARE v_status VARCHAR(20) DEFAULT NULL;
+    DECLARE v_sched_id INT;
+    DECLARE v_class_id INT;
+    DECLARE v_cur_res_id INT;
+    DECLARE v_cur_seat_id INT;
+    DECLARE v_cur_status VARCHAR(20);
+    DECLARE v_cur_queue VARCHAR(16);
+    DECLARE v_old_wl_num INT;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        RESIGNAL;
+    END;
+
+    IF p_manage_tx = 1 THEN START TRANSACTION; END IF;
+
+    SELECT user_id, status, schedule_id, class_id
+    INTO v_user_id, v_status, v_sched_id, v_class_id
+    FROM BOOKING WHERE pnr = p_pnr FOR UPDATE;
+
+    IF v_user_id IS NULL THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_status = 'NOT_FOUND';
+        LEAVE proc_label;
+    END IF;
+    IF v_user_id <> p_user_id THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_status = 'FORBIDDEN';
+        LEAVE proc_label;
+    END IF;
+    IF v_status <> 'PAYMENT_PENDING' THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_status = 'NOT_PENDING';
+        LEAVE proc_label;
+    END IF;
+
+    WHILE EXISTS (SELECT 1 FROM RESERVATION WHERE pnr = p_pnr AND status != 'CANCELLED') DO
+        SELECT res_id, seat_id, status, queue_position
+        INTO v_cur_res_id, v_cur_seat_id, v_cur_status, v_cur_queue
+        FROM RESERVATION
+        WHERE pnr = p_pnr AND status != 'CANCELLED'
+        LIMIT 1;
+
+        UPDATE RESERVATION
+        SET status = 'CANCELLED', seat_id = NULL, queue_position = NULL
+        WHERE res_id = v_cur_res_id;
+
+        IF v_cur_status = 'CONFIRMED' AND v_cur_seat_id IS NOT NULL THEN
+            CALL sp_promote_passenger(v_sched_id, v_class_id, v_cur_seat_id);
+        ELSEIF v_cur_status = 'RAC' THEN
+            CALL sp_promote_passenger(v_sched_id, v_class_id, NULL);
+        ELSEIF v_cur_status = 'WAITING_LIST' THEN
+            IF v_cur_queue IS NOT NULL THEN
+                SET v_old_wl_num = CAST(SUBSTRING_INDEX(v_cur_queue, '/', -1) AS UNSIGNED);
+                UPDATE SCHEDULE_CLASS_INVENTORY
+                SET wl_count = GREATEST(0, wl_count - 1)
+                WHERE schedule_id = v_sched_id AND class_id = v_class_id;
+
+                UPDATE RESERVATION r
+                JOIN BOOKING b ON r.pnr = b.pnr
+                SET r.queue_position = CONCAT('WL/', CAST(SUBSTRING_INDEX(r.queue_position, '/', -1) AS UNSIGNED) - 1)
+                WHERE r.schedule_id = v_sched_id
+                  AND b.class_id = v_class_id
+                  AND r.status = 'WAITING_LIST'
+                  AND CAST(SUBSTRING_INDEX(COALESCE(r.queue_position, '0'), '/', -1) AS UNSIGNED) > v_old_wl_num;
+            END IF;
+        END IF;
+    END WHILE;
+
+    UPDATE BOOKING SET status = 'FAILED' WHERE pnr = p_pnr;
+
+    UPDATE SCHEDULE_CLASS_INVENTORY sci
+    LEFT JOIN (
+        SELECT r.schedule_id, b.class_id,
+               SUM(CASE WHEN r.status IN ('CONFIRMED', 'BOARDED') THEN 1 ELSE 0 END) AS conf_count,
+               SUM(CASE WHEN r.status = 'RAC' THEN 1 ELSE 0 END) AS rac_count,
+               SUM(CASE WHEN r.status = 'WAITING_LIST' THEN 1 ELSE 0 END) AS wl_count
+        FROM RESERVATION r
+        JOIN BOOKING b ON r.pnr = b.pnr
+        WHERE r.schedule_id = v_sched_id AND b.class_id = v_class_id
+        GROUP BY r.schedule_id, b.class_id
+    ) res ON sci.schedule_id = res.schedule_id AND sci.class_id = res.class_id
+    SET sci.available_seats = sci.total_seats - COALESCE(res.conf_count, 0),
+        sci.rac_count = COALESCE(res.rac_count, 0),
+        sci.wl_count = COALESCE(res.wl_count, 0)
+    WHERE sci.schedule_id = v_sched_id AND sci.class_id = v_class_id;
+
+    IF p_manage_tx = 1 THEN COMMIT; END IF;
+    SET p_out_status = 'RELEASED';
 END proc_label$$
 
 -- -----------------------------------------------------------------------------
@@ -1784,6 +2103,14 @@ proc_label: BEGIN
 
     SET v_as_of = COALESCE(@as_of_time, NOW());
 
+    -- 0. A TDR is always for one passenger (BR-T3): a missing passenger number is refused
+    IF p_passenger_no IS NULL THEN
+        IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+        SET p_out_tdr_ref_no = NULL;
+        SET p_out_status = 'PASSENGER_REQUIRED';
+        LEAVE proc_label;
+    END IF;
+
     -- 1. Check reservation and booking ownership (BR-T3)
     SELECT b.user_id, b.schedule_id, b.class_id, b.from_stop_id, b.to_stop_id, r.status, r.seat_id
     INTO v_book_user_id, v_sched_id, v_cls_id, v_from_stop_id, v_to_stop_id, v_res_status, v_seat_id
@@ -1820,12 +2147,14 @@ proc_label: BEGIN
         LEAVE proc_label;
     END IF;
 
-    -- 3. Check for existing open or approved TDR (treat passenger_no NULL as whole PNR) (BR-T3)
+    -- 3. One open TDR per passenger (BR-T3). FILED, UNDER_REVIEW, APPROVED and REFUND_PROCESSED all count,
+    --    so a refunded passenger cannot file again. A REJECTED TDR is not open, so it may be filed again
+    --    (BR-T3 only limits open TDRs; BUSINESS_RULES section 9 has no ban on re-filing after a rejection).
     SELECT COUNT(*) INTO v_open_tdr_count
     FROM TDR_FILING
     WHERE pnr = p_pnr
       AND (passenger_no IS NULL OR passenger_no = p_passenger_no)
-      AND status IN ('FILED', 'UNDER_REVIEW', 'APPROVED');
+      AND status IN ('FILED', 'UNDER_REVIEW', 'APPROVED', 'REFUND_PROCESSED');
 
     IF v_open_tdr_count > 0 THEN
         IF p_manage_tx = 1 THEN ROLLBACK; END IF;
@@ -1880,6 +2209,16 @@ proc_label: BEGIN
     ELSE
         -- The other four reasons: reservation CONFIRMED, RAC or BOARDED
         IF v_res_status NOT IN ('CONFIRMED', 'RAC', 'BOARDED') THEN
+            IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+            SET p_out_tdr_ref_no = NULL;
+            SET p_out_status = 'NOT_ELIGIBLE';
+            LEAVE proc_label;
+        END IF;
+
+        -- These four reasons are about what happened on the journey, so the train must have left first
+        -- (boarding stop departure + delay). Before that there is nothing to claim yet.
+        SET v_dep_datetime = TIMESTAMP(v_journey_date, v_from_dep_time) + INTERVAL v_from_day_offset DAY + INTERVAL v_delay_minutes MINUTE;
+        IF v_as_of < v_dep_datetime THEN
             IF p_manage_tx = 1 THEN ROLLBACK; END IF;
             SET p_out_tdr_ref_no = NULL;
             SET p_out_status = 'NOT_ELIGIBLE';
@@ -2074,12 +2413,8 @@ proc_label: BEGIN
             LEAVE proc_label;
         END IF;
 
-        -- Find original successful payment
-        SELECT payment_id INTO v_payment_id
-        FROM PAYMENT
-        WHERE pnr = v_pnr AND status = 'SUCCESS'
-        ORDER BY paid_at DESC, payment_id DESC
-        LIMIT 1;
+        -- Find original successful payment (never a late payment that was already refunded)
+        SET v_payment_id = fn_pick_refund_payment(v_pnr);
 
         IF v_payment_id IS NULL THEN
             IF p_manage_tx = 1 THEN ROLLBACK; END IF;
@@ -2088,11 +2423,19 @@ proc_label: BEGIN
             LEAVE proc_label;
         END IF;
 
-        -- Insert REFUND row: refund_id = MAX+1 inside transaction
-        SELECT COALESCE(MAX(refund_id), 0) + 1 INTO v_new_refund_id FROM REFUND;
+        -- Refund cap: total refunds on this payment may never be more than was paid.
+        -- Choice here: refuse (the admin can approve a smaller amount); the amount is never changed silently.
+        IF p_refund_amount > fn_refund_room(v_payment_id) THEN
+            IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+            SET p_out_refund_id = NULL;
+            SET p_out_status = 'REFUND_EXCEEDS_PAYMENT';
+            LEAVE proc_label;
+        END IF;
 
-        INSERT INTO REFUND (refund_id, cancel_id, tdr_ref_no, payment_id, amount, reason, status)
-        VALUES (v_new_refund_id, NULL, p_tdr_ref_no, v_payment_id, p_refund_amount, 'TDR_APPROVED', 'PROCESSED');
+        -- Insert REFUND row (refund_id is AUTO_INCREMENT)
+        INSERT INTO REFUND (cancel_id, tdr_ref_no, payment_id, amount, reason, status)
+        VALUES (NULL, p_tdr_ref_no, v_payment_id, p_refund_amount, 'TDR_APPROVED', 'PENDING');
+        SET v_new_refund_id = LAST_INSERT_ID();
 
         -- Set TDR status to REFUND_PROCESSED
         UPDATE TDR_FILING
@@ -2177,5 +2520,99 @@ proc_label: BEGIN
 
 END proc_label$$
 
-DELIMITER ;
+-- -----------------------------------------------------------------------------
+-- 12. sp_set_refund_result
+-- The ONLY way a REFUND status changes after the row is created. Node calls it after
+-- the Razorpay call. A refund has a real life:
+--   PENDING (row created)  ->  PROCESSED (gateway done)  or  FAILED (gateway failed)
+--   FAILED  (can be retried) ->  PROCESSED  or  FAILED again
+-- Everything else (PROCESSED to anything, PENDING to PENDING, unknown status) is
+-- INVALID_TRANSITION and nothing is changed. Each accepted call counts one attempt.
+-- p_status_out: the new status, or INVALID_TRANSITION, or NOT_FOUND.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS sp_set_refund_result$$
+CREATE PROCEDURE sp_set_refund_result(
+    IN p_refund_id INT,
+    IN p_status VARCHAR(20),
+    IN p_gateway_refund_id VARCHAR(40),
+    IN p_failure_reason VARCHAR(255),
+    OUT p_status_out VARCHAR(32)
+)
+proc_label: BEGIN
+    DECLARE v_cur VARCHAR(20) DEFAULT NULL;
+    DECLARE v_now DATETIME;
 
+    SET v_now = COALESCE(@as_of_time, NOW());
+
+    SELECT status INTO v_cur FROM REFUND WHERE refund_id = p_refund_id FOR UPDATE;
+
+    IF v_cur IS NULL THEN
+        SET p_status_out = 'NOT_FOUND';
+        LEAVE proc_label;
+    END IF;
+
+    IF NOT (
+        (v_cur = 'PENDING' AND p_status IN ('PROCESSED', 'FAILED'))
+        OR (v_cur = 'FAILED' AND p_status IN ('PROCESSED', 'FAILED'))
+    ) THEN
+        SET p_status_out = 'INVALID_TRANSITION';
+        LEAVE proc_label;
+    END IF;
+
+    UPDATE REFUND
+    SET status = p_status,
+        gateway_refund_id = COALESCE(p_gateway_refund_id, gateway_refund_id),
+        failure_reason = LEFT(p_failure_reason, 255),
+        attempts = attempts + 1,
+        last_attempt_at = v_now,
+        processed_at = IF(p_status = 'PROCESSED', v_now, processed_at)
+    WHERE refund_id = p_refund_id;
+
+    SET p_status_out = p_status;
+END proc_label$$
+
+-- -----------------------------------------------------------------------------
+-- 13. sp_set_payment_order_result
+-- The ONLY way a PAYMENT_ORDER status changes. Allowed: CREATED -> PAID, CREATED -> LATE_PAID,
+-- CREATED -> FAILED, CREATED -> EXPIRED (the hold ended unpaid) and EXPIRED -> PAID or LATE_PAID (a payment
+-- still arrived inside the 24 hour check window). FAILED is final. Everything else is INVALID_TRANSITION (including a repeat of the same
+-- status), unknown order is NOT_FOUND. PAID and LATE_PAID set paid_at and keep the gateway payment id.
+-- p_status_out: the new status, INVALID_TRANSITION or NOT_FOUND.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS sp_set_payment_order_result$$
+CREATE PROCEDURE sp_set_payment_order_result(
+    IN p_order_id VARCHAR(40),
+    IN p_status VARCHAR(20),
+    IN p_gateway_payment_id VARCHAR(40),
+    OUT p_status_out VARCHAR(32)
+)
+proc_label: BEGIN
+    DECLARE v_cur VARCHAR(20) DEFAULT NULL;
+    DECLARE v_now DATETIME;
+
+    SET v_now = COALESCE(@as_of_time, NOW());
+
+    SELECT status INTO v_cur FROM PAYMENT_ORDER WHERE order_id = p_order_id FOR UPDATE;
+
+    IF v_cur IS NULL THEN
+        SET p_status_out = 'NOT_FOUND';
+        LEAVE proc_label;
+    END IF;
+
+    IF NOT (   (v_cur = 'CREATED' AND p_status IN ('PAID', 'LATE_PAID', 'FAILED', 'EXPIRED'))
+            OR (v_cur = 'EXPIRED' AND p_status IN ('PAID', 'LATE_PAID'))) THEN
+        SET p_status_out = 'INVALID_TRANSITION';
+        LEAVE proc_label;
+    END IF;
+
+    UPDATE PAYMENT_ORDER
+    SET status = p_status,
+        gateway_payment_id = COALESCE(p_gateway_payment_id, gateway_payment_id),
+        paid_at = IF(p_status IN ('PAID', 'LATE_PAID'), v_now, paid_at),
+        last_checked_at = v_now
+    WHERE order_id = p_order_id;
+
+    SET p_status_out = p_status;
+END proc_label$$
+
+DELIMITER ;

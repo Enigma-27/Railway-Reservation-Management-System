@@ -122,11 +122,11 @@ Follow these steps to schedule the simulator to run automatically every night at
 2. **Action**: `Start a program`.
 3. In **Program/script**, enter the absolute path to `run-simulator.bat`:
    ```
-   C:\Users\Ved\OneDrive\Documents\GitHub\Railway-Reservation-Management-System\run-simulator.bat
+   <path to the repository>\run-simulator.bat
    ```
 4. In **Start in (optional)**, enter the absolute repository root directory:
    ```
-   C:\Users\Ved\OneDrive\Documents\GitHub\Railway-Reservation-Management-System
+   <path to the repository>
    ```
    *(Note: Setting "Start in" is mandatory so that relative module paths resolve properly).*
 5. Click **OK**.

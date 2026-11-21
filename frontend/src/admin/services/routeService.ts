@@ -1,11 +1,11 @@
-import { API_CONFIG } from '../config/api.config';
+import { isServiceMock } from '../config/api.config';
 import { RouteStop } from '../types/route';
 import { httpRequest } from './http.client';
 import { mockStore, simulateLatency } from './mock.client';
 
 export const routeService = {
   async getRoutes(trainId?: number): Promise<RouteStop[]> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const routes = mockStore.getRoutes();
       const filtered = trainId ? routes.filter((r) => r.trainId === trainId) : routes;
@@ -17,7 +17,7 @@ export const routeService = {
   },
 
   async createRouteStop(payload: Omit<RouteStop, 'routeId'>): Promise<RouteStop> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getRoutes();
       const newId = Math.max(...list.map((r) => r.routeId), 0) + 1;
@@ -43,7 +43,7 @@ export const routeService = {
   },
 
   async updateRouteStop(routeId: number, payload: Partial<Omit<RouteStop, 'routeId'>>): Promise<RouteStop> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getRoutes();
       const idx = list.findIndex((r) => r.routeId === routeId);
@@ -73,7 +73,7 @@ export const routeService = {
   },
 
   async deleteRouteStop(routeId: number): Promise<void> {
-    if (API_CONFIG.USE_MOCK) {
+    if (isServiceMock('masterData')) {
       await simulateLatency();
       const list = mockStore.getRoutes();
       const target = list.find((r) => r.routeId === routeId);

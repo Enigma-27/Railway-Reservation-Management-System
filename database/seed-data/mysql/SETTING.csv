@@ -12,3 +12,8 @@ DYNAMIC_FARE_ENABLED,false,BR-F11 dynamic Tatkal surcharge flag,2026-10-18 00:00
 MIN_CHARGEABLE_DISTANCE_KM,100,Minimum billable distance slab,2026-10-18 00:00:00
 INSURANCE_PREMIUM_PER_PASSENGER,0.45,Optional travel insurance charge,2026-10-18 00:00:00
 GST_RATE_AC,0.05,GST rate on AC travel classes,2026-10-18 00:00:00
+CONTACT_HELPLINE,"1800-000-0139 (demo number, 6 am to 10 pm)",Contact panel: helpline text (demo value),2026-10-18 00:00:00
+CONTACT_EMAIL,support@rrms.example.com,Contact panel: support e-mail (demo value),2026-10-18 00:00:00
+CONTACT_ADDRESS,RRMS Help Centre (demo address),Contact panel: address line (demo value),2026-10-18 00:00:00
+SENIOR_AGE_MALE,60,Minimum age of a male or other-gender senior citizen,2026-10-18 00:00:00
+SENIOR_AGE_FEMALE,45,Minimum age of a female senior citizen,2026-10-18 00:00:00

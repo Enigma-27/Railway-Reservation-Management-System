@@ -417,7 +417,7 @@ BEGIN
 
     WHILE v_cnt < 12 DO
         INSERT INTO BOOKING (pnr, user_id, schedule_id, class_id, from_stop_id, to_stop_id, channel, quota, requested_quota, berth_condition, total_fare, status, created_at)
-        VALUES (CONCAT('88880000', LPAD(v_cnt, 2, '0')), 50002, v_sched_id, 3, 1145, 1149, 'ONLINE', 'GENERAL', 'GENERAL', 0, 100.00, 'CONFIRMED', NOW());
+        VALUES (CONCAT('88880000', LPAD(v_cnt, 2, '0')), 50002, v_sched_id, 3, 1145, 1149, 'ONLINE', 'GENERAL', 'GENERAL', 0, 100.00, 'CONFIRMED', '2026-10-17 10:00:00');
         SET v_cnt = v_cnt + 1;
     END WHILE;
 
@@ -3400,6 +3400,96 @@ BEGIN
     DEALLOCATE PREPARE id_stmt;
 END$$
 
+-- -----------------------------------------------------------------------------
+-- BR-Q3 / BR-CB5: Tatkal needs an Aadhaar-verified account (online) or an Aadhaar ID proof (counter)
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_tatkal_aadhaar_rule$$
+CREATE PROCEDURE test_tatkal_aadhaar_rule()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_err2 VARCHAR(32);
+    DECLARE v_pax_plain JSON;
+    DECLARE v_pax_aadhaar JSON;
+
+    SET v_pax_plain = JSON_ARRAY(JSON_OBJECT('saved_passenger_id', 7, 'name', 'Tatkal User', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH'));
+    SET v_pax_aadhaar = JSON_ARRAY(JSON_OBJECT('saved_passenger_id', 7, 'name', 'Tatkal User', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'concession_proof_type', 'AADHAAR', 'concession_proof_ref', 'XXXX-XXXX-1234', 'berth_preference', 'NO_BERTH'));
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
+
+    -- online, account NOT verified -> refused
+    UPDATE USER_ACCOUNT SET aadhaar_verified = 0 WHERE user_id = 50002;
+    CALL sp_create_booking(50002, 1001, 3, 1145, 1149, 'TATKAL', 0, 0, 0, v_pax_plain, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+    -- online, account verified -> the Aadhaar rule no longer refuses
+    UPDATE USER_ACCOUNT SET aadhaar_verified = 1 WHERE user_id = 50002;
+    CALL sp_create_booking(50002, 1001, 3, 1145, 1149, 'TATKAL', 0, 0, 0, v_pax_plain, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err2);
+
+    IF v_err = 'AADHAAR_REQUIRED' AND COALESCE(v_err2, 'NONE') <> 'AADHAAR_REQUIRED' THEN
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Tatkal online needs an Aadhaar-verified account (BR-Q3)', 'AADHAAR_REQUIRED then allowed', CONCAT(v_err, ' then ', COALESCE(v_err2, 'OK')), 'PASS', 'Unverified account refused, verified account accepted.');
+    ELSE
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Tatkal online needs an Aadhaar-verified account (BR-Q3)', 'AADHAAR_REQUIRED then allowed', CONCAT(COALESCE(v_err, 'NONE'), ' then ', COALESCE(v_err2, 'OK')), 'FAIL', 'Tatkal Aadhaar rule not enforced as expected.');
+    END IF;
+
+    -- counter: no Aadhaar proof -> refused; with an Aadhaar proof on one passenger -> not refused for Aadhaar
+    SET v_err = NULL; SET v_err2 = NULL;
+    CALL sp_create_counter_booking(1, NULL, 1001, 3, 1145, 1149, 'TATKAL', v_pax_plain, 'CASH', 0, v_pnr, v_fare, v_stat, v_err);
+    CALL sp_create_counter_booking(1, NULL, 1001, 3, 1145, 1149, 'TATKAL', v_pax_aadhaar, 'CASH', 0, v_pnr, v_fare, v_stat, v_err2);
+    IF v_err = 'AADHAAR_REQUIRED' AND COALESCE(v_err2, 'NONE') <> 'AADHAAR_REQUIRED' THEN
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Tatkal at the counter needs an Aadhaar ID proof (BR-CB5)', 'AADHAAR_REQUIRED then allowed', CONCAT(v_err, ' then ', COALESCE(v_err2, 'OK')), 'PASS', 'Counter Tatkal without proof refused, with proof accepted.');
+    ELSE
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Tatkal at the counter needs an Aadhaar ID proof (BR-CB5)', 'AADHAAR_REQUIRED then allowed', CONCAT(COALESCE(v_err, 'NONE'), ' then ', COALESCE(v_err2, 'OK')), 'FAIL', 'Counter Tatkal Aadhaar rule not enforced as expected.');
+    END IF;
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+END$$
+
+-- -----------------------------------------------------------------------------
+-- BR-B15: the monthly limit counts on the TEST CLOCK month. 12 tickets in September do not block a booking made on 17 October.
+-- -----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS test_monthly_limit_test_clock_month$$
+CREATE PROCEDURE test_monthly_limit_test_clock_month()
+BEGIN
+    DECLARE v_pnr VARCHAR(10);
+    DECLARE v_stat VARCHAR(20);
+    DECLARE v_fare DECIMAL(10,2);
+    DECLARE v_err VARCHAR(32);
+    DECLARE v_cnt INT DEFAULT 0;
+    DECLARE v_pax JSON;
+
+    SET v_pax = JSON_ARRAY(JSON_OBJECT('saved_passenger_id', 7, 'name', 'Limit User', 'age', 30, 'gender', 'MALE', 'concession_type', 'NONE', 'berth_preference', 'NO_BERTH'));
+    DELETE FROM BOOKING WHERE pnr LIKE '88870000%';
+
+    START TRANSACTION;
+    SET @as_of_time = '2026-10-17 19:15:00';
+    UPDATE USER_ACCOUNT SET aadhaar_verified = 0 WHERE user_id = 50002;
+    WHILE v_cnt < 12 DO
+        INSERT INTO BOOKING (pnr, user_id, schedule_id, class_id, from_stop_id, to_stop_id, channel, quota, requested_quota, berth_condition, total_fare, status, created_at)
+        VALUES (CONCAT('88870000', LPAD(v_cnt, 2, '0')), 50002, 1001, 3, 1145, 1149, 'ONLINE', 'GENERAL', 'GENERAL', 0, 100.00, 'CONFIRMED', '2026-09-20 10:00:00');
+        SET v_cnt = v_cnt + 1;
+    END WHILE;
+    CALL sp_create_booking(50002, 1001, 3, 1145, 1149, 'GENERAL', 0, 0, 0, v_pax, 'ONLINE', NULL, 0, v_pnr, v_stat, v_fare, v_err);
+
+    IF COALESCE(v_err, 'NONE') <> 'MONTHLY_LIMIT_EXCEEDED' THEN
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Monthly limit counts the test-clock month (September tickets do not block October)', 'not MONTHLY_LIMIT_EXCEEDED', COALESCE(v_err, 'OK'), 'PASS', 'fn_check_monthly_ticket_limit is called with COALESCE(@as_of_time, NOW()).');
+    ELSE
+        INSERT INTO test_results (test_name, expected_outcome, actual_outcome, status, details)
+        VALUES ('Monthly limit counts the test-clock month (September tickets do not block October)', 'not MONTHLY_LIMIT_EXCEEDED', v_err, 'FAIL', 'The limit looked at the wrong month.');
+    END IF;
+
+    SET @as_of_time = NULL;
+    ROLLBACK;
+    DELETE FROM BOOKING WHERE pnr LIKE '88870000%';
+END$$
+
 DROP PROCEDURE IF EXISTS sp_run_all_tests$$
 CREATE PROCEDURE sp_run_all_tests()
 BEGIN
@@ -3439,6 +3529,8 @@ BEGIN
     CALL test_booking_journey_past();
     CALL test_booking_outside_window();
     CALL test_booking_invalid_stops();
+    CALL test_tatkal_aadhaar_rule();
+    CALL test_monthly_limit_test_clock_month();
     CALL test_ladies_quota_male_refused();
     CALL test_senior_quota_underage_refused();
     CALL test_divyaang_without_proof_refused();

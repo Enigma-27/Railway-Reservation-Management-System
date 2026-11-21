@@ -1,6 +1,6 @@
 # Frontend: Railway Reservation & Management System (RRMS)
 
-One website for all three roles. React + Vite + TypeScript + Tailwind, port **5173**. The signed-in passenger area is a plain HTML/JS app in `public/user/` that lives on the same site and uses the same login, theme and name.
+One website for all three roles, one design system. React + Vite + TypeScript + Tailwind, port **5173**. The passenger area is part of the React app too (`/passenger/...`); it shares the shell, theme, toasts, Ctrl+K and motion with the staff and admin portals.
 
 ```
 cd frontend
@@ -9,64 +9,94 @@ npm run dev        # http://localhost:5173   (the backend must run on port 5000)
 npm run build      # type-check + production build into dist/
 ```
 
+> If you started `npm run dev` before pulling this redesign, restart it once: Tailwind reads the new colour setup (`tailwind.config.js`) at start.
+
 ## 1. Pages and routes
 
 | Address | Page | Who |
 | :--- | :--- | :--- |
-| `/` | **Landing page**: header (logo, name, Home, Train Info, Live Trains, alerts bell), service-alerts strip, train search, the ONE sign-in card | everyone |
+| `/` | **Landing page**: header (Home, Train Info, Live Trains, Contact, Ctrl+K, alerts bell, theme toggle), alerts strip, hero (typed headline, train search, the ONE sign-in card), stat strip (live numbers), three big cards (Book a ticket, Live Trains, PNR status), "how it works", "one system, three portals", footer | everyone |
 | `/train-info` | **Train Info**: Train schedule, Track your train, PNR enquiry (real API data) | everyone (PNR needs a sign-in) |
-| `/live-trains` | **Live Trains**: every train run of a date with live seats, RAC and waiting list (filters: date, from, to, type, class, running status, search). Click a train for the class and quota detail. Refreshes every 15 seconds. Staff and admin also see chart state and occupancy. "Book this train" opens the booking flow with the train, date and class chosen. Data: `GET /api/live-trains` and `GET /api/live-trains/:scheduleId`. | everyone |
-| `/passenger` | Opens the passenger area (`/user/index.html`) when signed in as a passenger; otherwise goes to `/` | passenger |
-| `/user/index.html` | Passenger area: Home, Book Tickets (6 steps, Razorpay), My Bookings, PNR Enquiry, Profile, Saved Passengers, TDR / Refunds, Grievances, Alerts | passenger |
-| `/staff` | Staff / TC terminal (10 tabs; fits a phone) | staff |
-| `/admin`, `/admin/...` | Admin portal (23 pages, including Refund Transactions and Contact Messages) | admin |
-| anything else, `/admin/login` | goes to `/` | |
+| `/live-trains` | **Live Trains** (public): every train run of a date with live seats, RAC and waiting list, filters, detail panel, refresh every 15 seconds. | everyone |
+| `/passenger`, `/passenger/book`, `/bookings`, `/pnr`, `/profile`, `/tdr`, `/grievances`, `/alerts` | Passenger portal pages (see section 5) | passenger |
+| `/passenger/live-trains` | Live Trains inside the passenger portal. "Book this train" continues straight into the booking flow | passenger |
+| `/staff` (`?tab=...`) | Station staff portal. The page is the `tab` of the address, for example `/staff?tab=scanner&pnr=1234567890`. Tabs: overview, live-trains, manifest, scanner, vacancies, counter, fines, operations, crowd_clean, maintenance, emergency | staff |
+| `/admin`, `/admin/...` | Admin portal (23 pages plus `/admin/live-trains`) | admin |
+| `/user/*`, `/admin/login`, anything else | goes to `/passenger` (old passenger address) or `/` | |
 
-Opening a protected address while signed out (or with the wrong role) always goes to `/`.
+Opening a protected address while signed out (or with the wrong role) goes to `/`.
 
 ## 2. One login, one session
 
-- The sign-in card on `/` is the only login on the site. The role tab (**Passenger**, **Staff / TC**, **Admin**) decides which backend login route is called: `/api/auth/passenger/login`, `/api/auth/staff/login`, `/api/auth/admin/login`.
-- The result is stored under two keys for every role: `rrms_token` (the JWT) and `rrms_user` (the user, with `role`). Code: `src/auth/session.ts`. The passenger area reads the same keys.
-- **Sign out** (in every portal) removes both keys and returns to `/`. Refreshing keeps you signed in. Opening `/` while signed in shows "Go to my portal" instead of the card.
-- **Use demo account** (per role tab) fills in a demo login from the seed data. Nothing is pre-filled on its own. Demo accounts: passenger `rahul.sharma@example.com` / `Password123!`, staff `EMP-TC-101` / `StaffPassword123!`, admin `admin@railways.gov.in` / `AdminPassword123!`.
-- A search typed on the landing page is kept in `sessionStorage` (`rrms_pending_search`). A signed-out visitor is asked to sign in as Passenger and then lands in the booking flow with the results. A signed-in passenger goes straight there.
+- The sign-in card on `/` is the only login on the site. The role tab (a sliding indicator: **Passenger**, **Staff / TC**, **Admin**) decides which backend login route is called: `/api/auth/passenger/login`, `/api/auth/staff/login`, `/api/auth/admin/login`.
+- The fields are **empty** until the visitor types. **Use demo account** fills the form for the chosen role (changing the role clears it). Demo accounts: passenger `passenger@rrms.in` / `Demo@123`, staff `EMP-TC-101` / `Demo@123`, admin `admin@rrms.in` / `Demo@123`. "New passenger? Create an account" stays.
+- The result is stored under two keys for every role: `rrms_token` and `rrms_user` (with `role`). Code: `src/auth/session.ts`. **Sign out** (profile menu, top right) removes both keys and returns to `/`.
+- A search typed on the landing page, or "Book this train" on the public Live Trains page, is kept in `sessionStorage` (`rrms_pending_search`); after the passenger sign-in the booking flow opens with the results.
 
-## 3. Theme and name
+## 3. Design system
 
-- One set of tokens: `public/rrms-theme.css` (colours, fonts, spacing, radius, shadows, buttons, inputs, cards, badges, tables, modal, toast). It is loaded by `index.html` and by `public/user/index.html`. Tailwind pages read the same values through `tailwind.config.js` (`rrms` colours). The reference look is the landing page: white header, blue primary buttons.
-- Every text/background pair in the tokens is WCAG AA or better. Three Tailwind shades that were too light for text (`slate-400`, `slate-500`, `gray-400`, plus `emerald-600` and `orange-600` for white-on-colour) are darkened in `tailwind.config.js`, so every use on the staff and admin pages is fixed at once.
-- One name: "Railway Reservation & Management System", short form **RRMS**. One logo: a white train on a blue rounded square.
+One system for every page. Tokens live in **`public/rrms-theme.css`**; the Tailwind colour channels in `public/rrms-palette.css` (generated by `node scripts/gen-palette.mjs`); `tailwind.config.js` maps Tailwind colours to them, so the staff and admin pages (plain Tailwind classes) follow the theme too.
 
-## 4. Shared pieces
+- **Themes**: dark (default) and light. The sun/moon button sits in every header. The choice is saved in `localStorage` (`rrms_theme`, wrapped in try/catch); on a first visit the system preference is used. A small script in `index.html` sets `data-theme` on `<html>` before the first paint, so there is no flash. Both themes pass axe (WCAG AA) on every page.
+- **Colour**: navy / near-black base, warm amber highlight (from the sunset in the hero photo), blue kept for primary buttons and links. Status colours are the same everywhere: confirmed (green), RAC (amber), waiting (orange), cancelled (red), delayed (violet); the mapping from a status word to a chip is `src/ui/status.ts`.
+- **Type** (npm packages `@fontsource-variable/*`, bundled, no CDN, works offline): Fraunces (serif display, italic for the highlighted word), Inter (body), JetBrains Mono (labels, PNR, train numbers, station codes).
+- **Motion**: CSS and `IntersectionObserver` only (no animation library): staggered reveal on scroll, typing headline, count-up numbers, a train moving along a route line, live pulsing dot, page transitions, animated drawer/modal/toast, skeleton shimmer. Only `transform` and `opacity` animate. Everything honours `prefers-reduced-motion` (static text, no movement) and never blocks clicks.
+- **Components** (`src/ui/`): `Select` (custom listbox), `DatePicker` (calendar, keyboard: arrows, PageUp/PageDown), `Tabs` (sliding indicator), `Drawer` (focus trap, Esc), `toast()` (one toast system for the whole site, also used by the passenger controller), `Skeleton`, `EmptyState` (illustrated), `Reveal`, `CountUp`, `Typed`, `ContactDrawer`, `CommandPalette`.
 
-| File | What it does |
-| :--- | :--- |
-| `public/rrms-contact.js` | The floating **Contact Us** button (bottom-right, every page of the React app and the passenger area) with a panel and a short message form. Posts to `POST /api/contact`. The helpline, e-mail and address come from `GET /api/contact-info` (SETTING keys `CONTACT_HELPLINE`, `CONTACT_EMAIL`, `CONTACT_ADDRESS`; change them in Admin, Settings). The contact details in it are demo placeholders. |
-| `public/rrms-config.js` | `window.RRMS_CONFIG.API_BASE_URL` for the plain scripts (default `http://localhost:5000`). The React app uses `VITE_API_BASE_URL`. |
-| `src/components/PublicLayout.tsx` | Header navigation (**Home**, **Train Info**, **Live Trains**; the list `PUBLIC_NAV`) and the alerts strip (`GET /api/alerts`). |
-| `src/services/publicApi.ts` | Client for the public routes: stations, trains, run status, alerts, PNR. |
+## 4. One system, three portals
 
-## 5. Source layout
+`src/layout/PortalShell.tsx` is the one layout skeleton of the passenger, staff and admin portals: thin role-coloured bar at the top, top bar (Ctrl+K search, bell, theme toggle, profile menu with role badge), sidebar with the role label, breadcrumb with a "What is this page?" hint, content, footer (Home, Live Trains, Contact).
+
+| Role | Colour | Badge | Sidebar label | Tab title and icon |
+| :--- | :--- | :--- | :--- | :--- |
+| Passenger | blue | Passenger | Passenger | `RRMS - Passenger \| Page`, blue train icon |
+| Station staff | green | Station staff | Station staff | `RRMS - Staff \| Page`, green train icon |
+| Admin | amber | Admin | ADMIN MODE | `RRMS - Admin \| Page`, amber train icon |
+
+**Live Trains is in all three sidebars** (`LiveTrainsView` in `src/pages/LiveTrainsPage.tsx`, same data, filters, detail panel and 15 second refresh).
+
+Quality-of-life: **Ctrl+K** palette (jump to a page, search a train, look up a 10-digit PNR), breadcrumbs, a page title per page, "last updated" with a live dot, skeletons and illustrated empty states, keyboard-friendly forms. `src/layout/autoLabel.ts` names unlabelled form fields and makes scrollable tables keyboard reachable on the older staff and admin forms.
+
+**Contact** is a normal link in the header and footer. It opens a slide-in drawer (`src/ui/ContactDrawer.tsx`) with the same details and form as before (`GET /api/contact-info`, `POST /api/contact`). There is no floating button; nothing floats over the content.
+
+## 5. The passenger portal
+
+`src/passenger/PassengerPortal.tsx` (React: shell, URLs, sign-out, Live Trains) hosts the page controller `src/passenger/legacy/app.js` through `LegacyHost`. The markup of the pages and modals is `legacy/pages.html`, the styles `legacy/legacy.css` (every rule scoped under `.pax-legacy`, colours mapped to the theme tokens).
+
+What stayed exactly as it was: the booking steps, the Razorpay checkout and payment status code, Pay now / resume / cancel unpaid, My Bookings, cancellation, TDR, saved passengers, PNR enquiry, profile and every API call (`legacy/services/apiService.js`). Only the shell wiring of `app.js` changed (boot function instead of `DOMContentLoaded`, navigation through the router, shell counters published as the `rrms:pax-counts` event, toasts through the shared toast). Details: `docs/CHANGE_REPORT_14.md`.
+
+## 6. Source layout
 
 ```
-index.html                 loads rrms-theme.css, rrms-config.js, the React app, rrms-contact.js
-public/
-  rrms-theme.css  rrms-contact.js  rrms-config.js  train-sunset.jpg
-  user/                    passenger area (index.html, app.js, styles.css, services/apiService.js)
+index.html                 theme script (no flash), rrms-theme.css, rrms-palette.css, the React app
+public/                    rrms-theme.css  rrms-palette.css  rrms-config.js  favicon.svg  train-sunset.jpg (compressed)
+scripts/gen-palette.mjs    generates public/rrms-palette.css
 src/
-  main.tsx  router.tsx     one router for the site
-  auth/                    session.ts (the one session), RoleRoute.tsx (the one route guard)
-  pages/                   LandingPage, TrainInfoPage, LiveTrainsPage, and the staff pages
-  components/              PublicLayout, SignInCard, staff components
-  admin/                   admin portal (layout, 22 pages, services)
+  main.tsx  router.tsx     fonts, providers, one router (portal pages are lazy loaded)
+  theme/                   ThemeProvider + ThemeToggle
+  ui/                      Select, DatePicker, Tabs, Drawer, toast, Skeleton, EmptyState, motion, CommandPalette, ContactDrawer, status
+  layout/                  PortalShell (+ shell.css), RootLayout, roles (colours, page title), autoLabel
+  passenger/               PassengerPortal + legacy/ (page controller, markup, styles, API client)
+  pages/ components/       landing, Train Info, Live Trains, public header/footer, sign-in card, staff pages
+  admin/                   admin portal (layout, pages, services)
   context/ services/       staff state and API client
 ```
 
-## 6. Checks that were run
+## 7. Checks that were run
 
-A real-browser check (Playwright + axe-core) signs in through the landing card as each role, visits every page, runs the contrast rule and takes screenshots: `docs/screenshots/frontend-check/`. The result is in `docs/CHANGE_REPORT_12.md`. The browser scripts are not part of the repository.
+Real-browser checks (Playwright + axe-core, Chrome) in both themes on every page at 1366x768 and 390x844: 0 violations, no sideways page scroll. Screenshots: `docs/screenshots/redesign/`. Result and numbers: `docs/CHANGE_REPORT_14.md`. The browser scripts are not part of the repository.
 
-## 7. Known limits
+## 8. Known limits
 
-See `docs/KNOWN_GAPS_AND_DECISIONS.md`. Short version: the passenger area is not a React page (it is a separate document on the same site), the staff portal does not fit a phone screen, and the admin pages Quotas, Notifications, Grievances and the Reports tabs still use demo data.
+See `docs/KNOWN_GAPS_AND_DECISIONS.md` and `docs/CHANGE_REPORT_14.md` ("check later").
+
+## 9. Final round (Prompt 15)
+
+- **Custom controls everywhere.** `src/ui/enhance.ts` upgrades every native `<select>` and `<input type="date">` inside a portal page (passenger booking forms, staff and admin forms, modals) to the same accessible listbox and calendar as the landing page. The native element stays (hidden, still the source of truth) and gets `input` + `change` events, so existing pages and the passenger page controller keep working. Its accessible name is "label: value".
+- **Admin and staff components** use one set of component classes (`src/admin/admin-components.css`): buttons, form fields, data table (sticky header, hover rows, skeleton rows, illustrated empty state, sortable headers with `aria-sort`), page header, stat card, animated dialogs with focus handling. `StatusBadge` of both portals maps to the one status chip set (`src/ui/status.ts`).
+- **Public PNR status** on the landing page and Train Info (`GET /api/pnr-status/:pnr`, no login, status only).
+- **Admin Schedules** has a **Delay** button (set or clear, with a reason) and lists runs from today on by default.
+- **Admin Reports** are real (`GET /api/admin/analytics/:tab`) with a live totals strip; **Notifications** shows real counters and labels its list **Sample data**.
+- **Widths checked**: 320, 390, 768, 1366 and 1920 px on the landing page, Live Trains, booking, one staff page and one admin page: no page-level sideways scroll (wide tables scroll inside their card).
+- **Razorpay script**: the passenger portal loads `checkout.razorpay.com/v1/checkout.js` itself (it was missing after the move into React in the last round, which made "Pay now" fail; fixed).
+- **Logins** are now `passenger@rrms.in`, `chain@rrms.in`, `TC101`, `admin@rrms.in` with `Demo@123`.

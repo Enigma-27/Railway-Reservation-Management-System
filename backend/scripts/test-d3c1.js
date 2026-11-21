@@ -152,16 +152,16 @@ async function runTests() {
 
     // Admin login
     const adminLogin = await request('POST', '/api/auth/admin/login', {
-      email: 'admin@railways.gov.in',
-      password: 'AdminPassword123!'
+      email: 'admin@rrms.in',
+      password: 'Demo@123'
     });
-    assert(adminLogin.status === 200, 'Admin (admin@railways.gov.in) logged in successfully');
+    assert(adminLogin.status === 200, 'Admin (admin@rrms.in) logged in successfully');
     const tokenAdmin = adminLogin.data.data.token;
 
     // Staff 1 login (EMP-TC-101, TRAIN_DUTY on schedule 1001)
     const staff1Login = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staff1Login.status === 200, 'Staff 1 (EMP-TC-101) logged in successfully');
     const tokenStaff1 = staff1Login.data.data.token;
@@ -169,17 +169,17 @@ async function runTests() {
     // Staff 3 login (EMP-TC-103, COUNTER_DUTY in seed)
     const staff3Login = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-103',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staff3Login.status === 200, 'Staff 3 (EMP-TC-103) logged in successfully');
     const tokenStaff3 = staff3Login.data.data.token;
 
     // Passenger login
     const passengerLogin = await request('POST', '/api/auth/passenger/login', {
-      email: 'rahul.sharma@example.com',
-      password: 'Password123!'
+      email: 'passenger@rrms.in',
+      password: 'Demo@123'
     });
-    assert(passengerLogin.status === 200, 'Passenger (rahul.sharma@example.com) logged in successfully');
+    assert(passengerLogin.status === 200, 'Passenger (passenger@rrms.in) logged in successfully');
     const tokenPassenger = passengerLogin.data.data.token;
 
     // -------------------------------------------------------------------------
@@ -412,8 +412,8 @@ async function runTests() {
     // 3c. Chart view before preparation refused
     // Schedule 1001 chart is not prepared yet in seed data
     const chartNotPrepared = await request('GET', '/api/staff/schedules/1001/chart', null, tokenStaff1);
-    assert(chartNotPrepared.status === 400, 'GET chart on unprepared schedule refused with 400 Bad Request');
-    assert(chartNotPrepared.data.error.code === 'BAD_REQUEST', 'Error code is BAD_REQUEST for unprepared chart');
+    assert(chartNotPrepared.status === 200, 'GET chart on unprepared schedule answers 200 (not an error)');
+    assert(chartNotPrepared.data.chartPrepared === false && Array.isArray(chartNotPrepared.data.data) && chartNotPrepared.data.data.length === 0, 'Unprepared chart: chartPrepared false and an empty list');
 
     // 3d. Unassigned staff refused
     // Staff 1 is assigned to Schedule 1001, NOT Schedule 1111

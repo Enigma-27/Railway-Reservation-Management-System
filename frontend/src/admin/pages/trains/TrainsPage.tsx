@@ -168,7 +168,7 @@ export const TrainsPage: React.FC = () => {
       accessorKey: 'trainNumber',
       sortable: true,
       cell: (row) => (
-        <span className="font-extrabold text-[#2259c2] bg-blue-50/80 px-2.5 py-1 rounded-lg text-xs border border-blue-200/60 tracking-tight shadow-2xs">
+        <span className="font-extrabold text-brand bg-blue-50/80 px-2.5 py-1 rounded-lg text-xs border border-blue-200/60 tracking-tight shadow-2xs">
           {row.trainNumber}
         </span>
       ),
@@ -246,7 +246,7 @@ export const TrainsPage: React.FC = () => {
         <div className="flex items-center justify-end gap-1.5">
           <button
             onClick={() => handleViewDetails(row.trainId)}
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-blue-50 hover:text-[#2259c2] hover:border-blue-200 text-slate-500 transition-colors"
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-blue-50 hover:text-brand hover:border-blue-200 text-slate-500 transition-colors"
             title="View Route & Timetable"
           >
             <Eye className="w-3.5 h-3.5" />

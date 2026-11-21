@@ -15,6 +15,7 @@ const CANONICAL_ERROR_MESSAGES = {
   REFUND_EXCEEDS_PAYMENT: 'This refund is not allowed because it would return more than was paid, or the seat was already refunded.',
   NO_ADULT_PASSENGER: 'Booking attempt contains no passenger aged 18 or older (BR-Q15).',
   BERTH_PREFERENCE_NOT_MET: 'The requested berth preference could not be satisfied for all passengers in the selected class.',
+  AADHAAR_REQUIRED: 'Tatkal needs an Aadhaar-verified account (at the counter: an Aadhaar ID proof for one passenger).',
   MONTHLY_LIMIT_EXCEEDED: 'User exceeded monthly ticket limit (12 tickets/PNRs per calendar month, or 24 if Aadhaar-verified).',
   CHART_PREPARED: 'Booking or online cancellation attempted at or after chart time (BR-B12a, BR-B16).'
 };
@@ -36,6 +37,7 @@ const CANONICAL_ERROR_STATUS_CODES = {
   REFUND_EXCEEDS_PAYMENT: 400,
   NO_ADULT_PASSENGER: 400,
   BERTH_PREFERENCE_NOT_MET: 400,
+  AADHAAR_REQUIRED: 400,
   MONTHLY_LIMIT_EXCEEDED: 400,
   CHART_PREPARED: 400,
   VALIDATION_ERROR: 400,

@@ -23,6 +23,14 @@ export interface RankReportsResponse {
 
 
 export const reportService = {
+  /** REAL totals for the Reports and Notifications pages: GET /api/admin/analytics/summary */
+  async getSummary(): Promise<{ bookings: number; confirmed: number; rac: number; waiting: number; cancelled: number; revenue: number; refunded: number; pendingRefunds: number; occupancyPct: number; pendingTdr: number; totalTdr: number }> {
+    return httpRequest('/api/admin/analytics/summary');
+  },
+  async getNotificationStats(): Promise<{ total: number; unread: number; byType: Record<string, number> }> {
+    return httpRequest('/api/admin/analytics/notifications');
+  },
+
   async getDashboardMetrics(): Promise<DashboardMetrics> {
     await simulateLatency(50);
     const bookings = mockStore.getBookings();
@@ -50,104 +58,24 @@ export const reportService = {
     };
   },
 
+  /** REAL data: GET /api/admin/analytics/revenue (MySQL) */
   async getRevenueReport(): Promise<RevenueReportItem[]> {
-    await simulateLatency(50);
-    const bookings = mockStore.getBookings();
-    const trains = mockStore.getTrains();
-    const trainMap = new Map(trains.map((t) => [t.trainId, t]));
-    const revenueMap = new Map<string, RevenueReportItem>();
-
-    bookings.forEach((b) => {
-      if (b.bookingStatus === 'CONFIRMED' || b.bookingStatus === 'RAC' || b.bookingStatus === 'WAITING_LIST') {
-        const train = trainMap.get(b.trainId);
-        const key = `${b.trainId}_${b.classType}`;
-        const current = revenueMap.get(key) || {
-          trainNumber: train?.trainNumber || `${b.trainId}`,
-          trainName: train?.trainName || 'Unknown Train',
-          classType: b.classType,
-          ticketCount: 0,
-          totalRevenue: 0,
-          period: 'Oct 2026',
-        };
-        current.ticketCount += 1;
-        current.totalRevenue += b.totalFare;
-        revenueMap.set(key, current);
-      }
-    });
-
-    return Array.from(revenueMap.values());
+    return httpRequest<RevenueReportItem[]>('/api/admin/analytics/revenue');
   },
 
+  /** REAL data: GET /api/admin/analytics/bookings (MySQL) */
   async getBookingTrends(): Promise<BookingTrendItem[]> {
-    await simulateLatency(50);
-    const bookings = mockStore.getBookings();
-    const map = new Map<string, BookingTrendItem>();
-
-    bookings.forEach((b) => {
-      const date = b.journeyDate;
-      const current = map.get(date) || {
-        date,
-        totalBookings: 0,
-        confirmedCount: 0,
-        racCount: 0,
-        waitingListCount: 0,
-        cancelledCount: 0,
-      };
-      current.totalBookings += 1;
-      if (b.bookingStatus === 'CONFIRMED') current.confirmedCount += 1;
-      else if (b.bookingStatus === 'RAC') current.racCount += 1;
-      else if (b.bookingStatus === 'WAITING_LIST') current.waitingListCount += 1;
-      else if (b.bookingStatus === 'CANCELLED') current.cancelledCount += 1;
-      map.set(date, current);
-    });
-
-    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+    return httpRequest<BookingTrendItem[]>('/api/admin/analytics/bookings');
   },
 
+  /** REAL data: GET /api/admin/analytics/cancellations (MySQL) */
   async getCancellationReport(): Promise<CancellationReportItem[]> {
-    await simulateLatency(50);
-    const cancellations = mockStore.getCancellations();
-    const bookings = mockStore.getBookings();
-    const trains = mockStore.getTrains();
-    const bMap = new Map(bookings.map((b) => [b.bookingId, b]));
-    const tMap = new Map(trains.map((t) => [t.trainId, t]));
-
-    return cancellations.map((c) => {
-      const booking = bMap.get(c.bookingId);
-      const train = booking ? tMap.get(booking.trainId) : null;
-      return {
-        pnr: booking ? booking.pnr : 'UNKNOWN',
-        trainNumber: train ? train.trainNumber : 'N/A',
-        cancellationDate: c.cancellationDate,
-        cancellationCharge: c.cancellationCharge,
-        refundAmount: c.refundAmount,
-        status: c.status,
-      };
-    });
+    return httpRequest<CancellationReportItem[]>('/api/admin/analytics/cancellations');
   },
 
+  /** REAL data: GET /api/admin/analytics/occupancy (MySQL) */
   async getOccupancyReport(): Promise<OccupancyReportItem[]> {
-    await simulateLatency(50);
-    const availabilities = mockStore.getAvailability();
-    const trains = mockStore.getTrains();
-    const tMap = new Map(trains.map((t) => [t.trainId, t]));
-
-    return availabilities.map((a: any) => {
-      const train = tMap.get(a.trainId);
-      const total = 50;
-      const booked = Math.max(0, total - a.availableSeats);
-      const occupancyPercentage = Math.round((booked / total) * 100);
-
-      return {
-        trainNumber: train?.trainNumber || `${a.trainId}`,
-        trainName: train?.trainName || 'Unknown Train',
-        journeyDate: a.journeyDate,
-        classType: a.classType,
-        totalCapacity: total,
-        bookedSeats: booked,
-        occupancyPercentage,
-      };
-    });
+    return httpRequest<OccupancyReportItem[]>('/api/admin/analytics/occupancy');
   },
 
   async getFineSummary(): Promise<FineSummaryItem[]> {
@@ -169,45 +97,14 @@ export const reportService = {
     });
   },
 
+  /** REAL data: GET /api/admin/analytics/delays (MySQL) */
   async getDelayReport(): Promise<DelayPunctualityItem[]> {
-    await simulateLatency(50);
-    const schedules = mockStore.getSchedules();
-    const trains = mockStore.getTrains();
-    const tMap = new Map(trains.map((t) => [t.trainId, t]));
-
-    return schedules.map((s) => {
-      const train = tMap.get(s.trainId);
-      return {
-        trainNumber: train ? train.trainNumber : `${s.trainId}`,
-        trainName: train ? train.trainName : 'Unknown Train',
-        journeyDate: s.journeyDate,
-        status: s.status,
-        delayMinutes: s.delayMinutes,
-      };
-    });
+    return httpRequest<DelayPunctualityItem[]>('/api/admin/analytics/delays');
   },
 
+  /** REAL data: GET /api/admin/analytics/complaints (MySQL + MongoDB) */
   async getComplaintsReport(): Promise<GrievanceMetricsItem[]> {
-    await simulateLatency(50);
-    const grievances = mockStore.getGrievances();
-    const map = new Map<string, GrievanceMetricsItem>();
-
-    grievances.forEach((g) => {
-      const cat = g.category;
-      const current = map.get(cat) || {
-        category: cat,
-        totalCount: 0,
-        resolvedCount: 0,
-        inProgressCount: 0,
-        avgResolutionDays: 1.5,
-      };
-      current.totalCount += 1;
-      if (g.status === 'RESOLVED') current.resolvedCount += 1;
-      else if (g.status === 'IN_PROGRESS' || g.status === 'SUBMITTED') current.inProgressCount += 1;
-      map.set(cat, current);
-    });
-
-    return Array.from(map.values());
+    return httpRequest<GrievanceMetricsItem[]>('/api/admin/analytics/complaints');
   },
 
   async getAnalyticalReport<T = any>(reportKey: string): Promise<{

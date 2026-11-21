@@ -35,9 +35,9 @@ export const ROLE_LABEL: Record<Role, string> = {
  * "Use demo account" buttons. Nothing is pre-filled on its own.
  */
 export const DEMO_ACCOUNTS: Record<Role, { id: string; password: string }> = {
-  PASSENGER: { id: 'rahul.sharma@example.com', password: 'Password123!' },
-  STAFF: { id: 'EMP-TC-101', password: 'StaffPassword123!' },
-  ADMIN: { id: 'admin@railways.gov.in', password: 'AdminPassword123!' },
+  PASSENGER: { id: 'passenger@rrms.in', password: 'Demo@123' },
+  STAFF: { id: 'TC101', password: 'Demo@123' },
+  ADMIN: { id: 'admin@rrms.in', password: 'Demo@123' },
 };
 
 const TOKEN_KEY = API_CONFIG.STORAGE_KEYS.TOKEN;

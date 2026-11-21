@@ -281,6 +281,16 @@ async function main() {
       }
     }
 
+    // 5c. The chain belongs to ONE login: chain@rrms.in owns every booking of the chain run (so you can sign in and see
+    //     the CONFIRMED, RAC and waiting-list tickets, cancel one and watch the promotion). Only the owner column changes;
+    //     the seat counters do not (the audit below proves it). Safe to repeat.
+    const [[chainUser]] = await pool.query("SELECT user_id FROM USER_ACCOUNT WHERE email = 'chain@rrms.in' LIMIT 1");
+    let chainNote = 'chain@rrms.in not found; the chain stays with the users who booked it';
+    if (chainUser) {
+      const [own] = await pool.query('UPDATE BOOKING SET user_id = ? WHERE schedule_id = ? AND class_id = ? AND user_id <> ?', [chainUser.user_id, targetRun.schedule_id, targetRun.class_id, chainUser.user_id]);
+      chainNote = `all bookings of the chain run belong to chain@rrms.in (${own.affectedRows} re-owned)`;
+    }
+
     // 6. Query demo PNRs
     // A. One CONFIRMED PNR and its owner's email (to log in as and cancel)
     const [confirmedRows] = await pool.query(`
@@ -341,6 +351,7 @@ async function main() {
     console.log(`First RAC PNR:       ${firstRacPnr}`);
     console.log(`First WL PNR:        ${firstWlPnr}`);
     console.log(`Staff duty:          ${dutyNote}`);
+    console.log(`Chain owner:         ${chainNote}`);
     console.log(`Live Trains:         /live-trains, date ${targetRun.journey_date}, search ${targetRun.train_number}, open the train: class ${targetRun.class_code} shows the confirmed, RAC and waiting-list counts`);
     console.log('================================================================================\n');
 

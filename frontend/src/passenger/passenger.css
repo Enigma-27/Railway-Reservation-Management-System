@@ -1,0 +1,8 @@
+/* Passenger portal: small touches on top of the scoped legacy pages (legacy/legacy.css) and the shared shell */
+.pax-legacy .page-title, .pax-legacy .welcome-title, .pax-legacy .section-title, .pax-legacy .step-title { font-family: var(--rrms-font-display); font-weight: 500; letter-spacing: -0.015em; }
+.pax-legacy .page-title { font-size: clamp(28px, 3vw, 38px); line-height: 1.1; }
+.pax-legacy .content-area { padding: 0; }
+.pax-legacy .page { animation: rrms-rise .4s var(--rrms-ease) both; }
+/* narrow screens: stat cards and grids shrink instead of pushing the page wider */
+.pax-legacy .stats-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.pax-legacy .stat-card, .pax-legacy .stat-body { min-width: 0; }

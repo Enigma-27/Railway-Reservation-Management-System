@@ -59,7 +59,7 @@ function assert(condition, message) {
   console.log(`  PASS: ${message}`);
 }
 
-const login = async (email) => (await request('POST', '/api/auth/passenger/login', { email, password: 'Password123!' })).data.data.token;
+const login = async (email) => (await request('POST', '/api/auth/passenger/login', { email, password: 'Demo@123' })).data.data.token;
 
 const PAX = [{ name: 'Test Traveller One', age: 40, gender: 'FEMALE', idProofType: 'AADHAAR', idProofReference: 'XXXX-XXXX-5001', berthPreference: 'NO_BERTH' }];
 const BOOKING = {
@@ -98,9 +98,9 @@ async function runTests() {
   await startServer();
 
   try {
-    const rahul = await login('rahul.sharma@example.com');
-    const priya = await login('priya.patel@example.com');
-    const admin = (await request('POST', '/api/auth/admin/login', { email: 'admin@railways.gov.in', password: 'AdminPassword123!' })).data.data.token;
+    const rahul = await login('passenger@rrms.in');
+    const priya = await login('chain@rrms.in');
+    const admin = (await request('POST', '/api/auth/admin/login', { email: 'admin@rrms.in', password: 'Demo@123' })).data.data.token;
     const [[run]] = await pool.query("SELECT schedule_id FROM TRAIN_SCHEDULE WHERE train_id = 129 AND journey_date = '2026-10-20'");
     const runId = run.schedule_id;
 

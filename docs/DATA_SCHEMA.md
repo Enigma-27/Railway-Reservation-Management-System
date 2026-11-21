@@ -196,7 +196,7 @@ These are the codes the SQL files and the backend really return. The full table 
 ## 3. Relational Schema Data Dictionary (MySQL Engine)
 
 ### 3.1 USER_ACCOUNT
-Authentication credentials, RBAC roles, and verification status for all 50,008 users. Seed users share the password `Password123!`; staff and admin have their own (see the README). Passwords are stored as bcrypt hashes.
+Authentication credentials, RBAC roles, and verification status for all 50,008 users. Seed users share the password `Demo@123`; staff and admin have their own (see the README). Passwords are stored as bcrypt hashes.
 
 | Field | Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -956,3 +956,10 @@ Checked against the live database with a read-only query of `information_schema`
 
 ### 5.5 Identity columns
 `AUTO_INCREMENT`: `RESERVATION.res_id`, `PAYMENT.payment_id`, `REFUND.refund_id`, `CANCELLATION.cancel_id`, `TICKET_VERIFICATION.verify_id`, `CHART_SNAPSHOT.snapshot_id` and `AUDIT_LOG.log_id`.
+
+## Changes of the final round (Prompt 15)
+
+- **No table or column changed.** Rule changes are inside procedures: `sp_create_booking` step 2f (Tatkal needs `USER_ACCOUNT.aadhaar_verified = 1`, or at the counter an AADHAAR proof on one passenger, error `AADHAAR_REQUIRED`) and step 3 (the monthly limit uses `v_as_of = COALESCE(@as_of_time, NOW())`).
+- **Seed data:** `USER_ACCOUNT` demo rows 50001 (`passenger@rrms.in`), 50002 (`chain@rrms.in`, Aadhaar verified), 50007 (`admin@rrms.in`); all seeded passengers, staff and the admin use the scrypt hash of `Demo@123` (salt `salt_user_<id>`). `STAFF_ASSIGNMENT` has three standing `COUNTER_DUTY` rows (staff 1, 2, 3; 2026-01-01 to 2036-12-31).
+- **`AUDIT_LOG`** now also receives `UPDATE_SCHEDULE_DELAY` and `CLEAR_SCHEDULE_DELAY` rows (table `TRAIN_SCHEDULE`) written by the admin delay route.
+- **`npm run demo:clear`** deletes in this order: `REFUND`, `CHART_SNAPSHOT`, `SEAT_HOLD`, `TICKET_VERIFICATION`, `TDR_FILING`, `CANCELLATION`, `PAYMENT`, `PAYMENT_ORDER`, `RESERVATION`, `PASSENGER_BOOKING`, `BOOKING`, then resets `SCHEDULE_CLASS_INVENTORY` (available = total, RAC 0, WL 0) and `TRAIN_SCHEDULE.chart_prepared_at`.

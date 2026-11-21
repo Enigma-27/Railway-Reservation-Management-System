@@ -26,6 +26,15 @@ async function createCounterBooking(req, res, next) {
       staffId = staffRows[0].staff_id;
     }
 
+    // Counter duty (BR-CB5): only staff with an ACTIVE COUNTER_DUTY shift (now between shift start and end) may book at the counter
+    const [dutyRows] = await pool.query(
+      "SELECT assign_id FROM STAFF_ASSIGNMENT WHERE staff_id = ? AND duty_type = 'COUNTER_DUTY' AND shift_start <= NOW() AND shift_end >= NOW() LIMIT 1",
+      [staffId]
+    );
+    if (dutyRows.length === 0) {
+      throw new AppError('FORBIDDEN', 'You have no active counter duty. Counter booking needs a COUNTER_DUTY shift that is running now.', 403);
+    }
+
     const {
       trainId,
       journeyDate,

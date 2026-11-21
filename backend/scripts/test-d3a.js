@@ -87,16 +87,16 @@ async function runTests() {
 
     // Login Passenger 1 (Rahul Sharma - 50001)
     const p1Login = await request('POST', '/api/auth/passenger/login', {
-      email: 'rahul.sharma@example.com',
-      password: 'Password123!'
+      email: 'passenger@rrms.in',
+      password: 'Demo@123'
     });
     assert(p1Login.status === 200, 'Passenger 1 (Rahul Sharma) logged in successfully');
     const token1 = p1Login.data.data.token;
 
     // Login Passenger 2 (Priya Patel - 50002)
     const p2Login = await request('POST', '/api/auth/passenger/login', {
-      email: 'priya.patel@example.com',
-      password: 'Password123!'
+      email: 'chain@rrms.in',
+      password: 'Demo@123'
     });
     assert(p2Login.status === 200, 'Passenger 2 (Priya Patel) logged in successfully');
     const token2 = p2Login.data.data.token;
@@ -104,7 +104,7 @@ async function runTests() {
     // Login Staff (Vikram Singh - EMP-TC-101)
     const staffLogin = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin.status === 200, 'Staff (EMP-TC-101) logged in successfully');
     const staffToken = staffLogin.data.data.token;

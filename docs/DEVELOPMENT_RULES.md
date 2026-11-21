@@ -1,3 +1,5 @@
+> **Status: partly archived.** Sections 1 to 4 (field names, enums, seat integrity, fare formula) are still valid. Section 5 describes the old "mock layer" phase: the frontends now call the real API. Start with the root README.md.
+
 # Development Rules & Team Engineering Standards
 
 ## 1. Core Rule: Zero-Drift Contract Compliance

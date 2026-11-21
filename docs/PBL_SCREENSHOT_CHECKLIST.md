@@ -2,7 +2,7 @@
 
 Take the screenshots in this order. For the database ones use a freshly loaded seed (`node database/load/run-all.js`, then `USE railway_db;` in MySQL Workbench). For the website ones use the demo data (`cd backend`, `npm run demo:refresh`, `npm run demo:chain`, `npm start`, and in `frontend` `npm run dev`, then open http://localhost:5173). Write down the PNRs and the passenger e-mail that `demo:chain` prints. Do not run `npm run test:all` between the website screenshots (it resets the data).
 
-Logins: staff `EMP-TC-101` / `StaffPassword123!`; admin `admin@railways.gov.in` / `AdminPassword123!`; passenger = the "Owner Login Email" printed by `demo:chain` with the password `Password123!` (all seeded passengers share it).
+Logins: staff `EMP-TC-101` / `Demo@123`; admin `admin@rrms.in` / `Demo@123`; passenger = the "Owner Login Email" printed by `demo:chain` with the password `Demo@123` (all seeded passengers share it).
 
 ## A. Design and database (MySQL Workbench)
 
@@ -53,3 +53,6 @@ Logins: staff `EMP-TC-101` / `StaffPassword123!`; admin `admin@railways.gov.in` 
 33. **Mapping table.** Open `docs/PBL_NAME_MAPPING.md` on GitHub. The picture must show the 12-row table.
 34. **Alias objects.** `node database/load/apply-sql.js 08_pdf_aliases`, then run the examples at the end of the mapping document. The picture must show `SELECT * FROM v_active_staff;` and the output of `sp_check_seat_segment_overlap`. Remove them afterwards with `node database/load/apply-sql.js 08_pdf_aliases_drop`.
 35. **Architecture.** Open `docs/ARCHITECTURE.md` on GitHub. One picture per diagram (system overview, booking and payment, cancellation and promotion, refund life, TDR, hold).
+
+
+Note (final round): logins are now `passenger@rrms.in`, `chain@rrms.in`, `TC101` and `admin@rrms.in` (password `Demo@123`). For clean screenshots run `npm run demo:clear` then `npm run demo:chain`.

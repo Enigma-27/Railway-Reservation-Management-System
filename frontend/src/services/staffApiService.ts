@@ -237,7 +237,13 @@ export const staffApiService = {
 
   // 3. Passenger Chart Manifest
   async getScheduleChart(scheduleId: number): Promise<ChartPassenger[]> {
-    return request<ChartPassenger[]>(`/api/staff/schedules/${scheduleId}/chart`);
+    // 200 with chartPrepared:false and an empty list when the chart does not exist yet (not an error)
+    const token = localStorage.getItem(API_CONFIG.STORAGE_KEYS.STAFF_TOKEN) || localStorage.getItem(API_CONFIG.STORAGE_KEYS.TOKEN);
+    const res = await fetch(`${API_CONFIG.BASE_URL}/api/staff/schedules/${scheduleId}/chart`, { headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) throw new StaffApiError(body?.error?.code || `HTTP_${res.status}`, body?.error?.message || 'Request failed', body?.error?.details);
+    if (body.chartPrepared === false) return null as any;
+    return body.data as ChartPassenger[];
   },
 
   // 3b. Public reference data (stations, train route) and the live status of a run

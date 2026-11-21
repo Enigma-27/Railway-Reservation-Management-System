@@ -81,6 +81,8 @@ const {
   deleteRefundRule
 } = require('../controllers/adminMasterDataController');
 
+const { setScheduleDelay, getAnalytics } = require('../controllers/adminOpsController');
+
 const router = express.Router();
 
 // All admin routes require ADMIN authentication
@@ -91,6 +93,12 @@ router.get('/schedules', getAdminSchedules);
 
 // POST /api/admin/schedules/:scheduleId/chart-preparation - Chart preparation execution (BR-B12a, Contract 7.2)
 router.post('/schedules/:scheduleId/chart-preparation', prepareChart);
+
+// POST /api/admin/schedules/:scheduleId/delay - set or clear (0) the delay of a run, audited
+router.post('/schedules/:scheduleId/delay', setScheduleDelay);
+
+// GET /api/admin/analytics/:tab - real numbers for the Reports and Notifications pages
+router.get('/analytics/:tab', getAnalytics);
 
 // GET /api/admin/settings - List system settings (Contract 7.1)
 router.get('/settings', getSettings);

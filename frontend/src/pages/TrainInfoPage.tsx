@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { Select } from '../ui/Select';
+import { DatePicker } from '../ui/DatePicker';
+import { PnrQuickCheck } from '../components/PnrQuickCheck';
+import { statusChip } from '../ui/status';
 import { PublicLayout } from '../components/PublicLayout';
-import { useAuth } from '../admin/auth/AuthContext';
 import { RouteStop, RunStatus, TrainDetail, TrainSummary, publicApi, todayIso } from '../services/publicApi';
 
-const STATUS_BADGE: Record<string, string> = { ON_TIME: 'rrms-badge-success', DELAYED: 'rrms-badge-warning', CANCELLED: 'rrms-badge-danger', COMPLETED: 'rrms-badge-info' };
 
 function useTrains() {
   const [trains, setTrains] = useState<TrainSummary[]>([]);
@@ -19,10 +21,7 @@ function useTrains() {
 
 function TrainSelect({ trains, value, onChange }: { trains: TrainSummary[]; value: string; onChange: (v: string) => void }) {
   return (
-    <select className="rrms-select" value={value} onChange={(e) => onChange(e.target.value)} aria-label="Train">
-      <option value="">Choose a train</option>
-      {trains.map((t) => <option key={t.trainId} value={t.trainId}>{t.trainNumber} - {t.displayName}</option>)}
-    </select>
+    <Select label="Train" hideLabel value={value} onChange={onChange} placeholder="Choose a train" options={trains.map((t) => ({ value: String(t.trainId), label: `${t.trainNumber} - ${t.displayName}` }))} />
   );
 }
 
@@ -105,14 +104,14 @@ function TrackCard({ trains }: { trains: TrainSummary[] }) {
       <p className="sub">Run status and delay</p>
       <form className="info-form" onSubmit={track}>
         <TrainSelect trains={trains} value={trainId} onChange={setTrainId} />
-        <input className="rrms-input" type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Journey date" />
+        <DatePicker label="Journey date" hideLabel value={date} onChange={setDate} min={todayIso()} max={todayIso(7)} />
         <button className="rrms-btn rrms-btn-primary" type="submit" disabled={busy}>{busy ? 'Checking...' : 'Track train'}</button>
       </form>
       <div className="info-result" aria-live="polite">
         {msg && <div className="rrms-alert-error" role="alert">{msg}</div>}
         {run && (
           <>
-            <p><span className={`rrms-badge ${STATUS_BADGE[run.status] || 'rrms-badge-info'}`}>{run.status.replace('_', ' ')}</span>{' '}
+            <p><span className={`rrms-badge ${statusChip(run.status)}`}>{run.status.replace('_', ' ')}</span>{' '}
               <strong>{run.delayMinutes > 0 ? `${run.delayMinutes} min late` : 'No delay recorded'}</strong></p>
             <p>{run.trainNumber} {run.trainName}<br />Departs {run.departureTime} on {run.journeyDate}</p>
             <p>{lastStopPassed(run)}</p>
@@ -125,55 +124,12 @@ function TrackCard({ trains }: { trains: TrainSummary[] }) {
 }
 
 function PnrCard() {
-  const { session } = useAuth();
-  const [pnr, setPnr] = useState('');
-  const [data, setData] = useState<any | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const look = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setData(null); setMsg(null);
-    if (!/^\d{10}$/.test(pnr.trim())) return setMsg('Please enter a 10-digit PNR.');
-    setBusy(true);
-    try { setData(await publicApi.pnr(pnr.trim())); }
-    catch (err: any) { setMsg(err.status === 404 ? `No booking was found for PNR ${pnr}.` : err.status === 403 ? 'You can only check your own PNR.' : err.message); }
-    finally { setBusy(false); }
-  };
-
+  const [params] = useSearchParams();
   return (
     <article className="rrms-card info-card">
       <h2>PNR enquiry</h2>
       <p className="sub">Check the status of a ticket</p>
-      {!session ? (
-        <div className="rrms-alert-info" role="status">
-          A PNR shows a passenger's private ticket, so it needs a sign-in. <Link to="/" style={{ fontWeight: 700, textDecoration: 'underline' }}>Go to Home to sign in</Link>.
-        </div>
-      ) : (
-        <form className="info-form" onSubmit={look}>
-          <input className="rrms-input" inputMode="numeric" maxLength={10} placeholder="10-digit PNR" value={pnr} onChange={(e) => setPnr(e.target.value)} aria-label="PNR" />
-          <button className="rrms-btn rrms-btn-primary" type="submit" disabled={busy}>{busy ? 'Looking up...' : 'Check status'}</button>
-        </form>
-      )}
-      <div className="info-result" aria-live="polite">
-        {msg && <div className="rrms-alert-error" role="alert">{msg}</div>}
-        {data && (
-          <>
-            <p><span className="rrms-badge rrms-badge-info">{String(data.bookingStatus || '').replace('_', ' ')}</span> <strong>PNR {data.pnr}</strong></p>
-            <p>{data.trainNumber} {data.trainName}<br />{data.boardingStation?.stationCode} to {data.destinationStation?.stationCode} on {data.journeyDate} ({data.classType})</p>
-            {Array.isArray(data.passengers) && data.passengers.length > 0 && (
-              <table className="rrms-table">
-                <thead><tr><th>Passenger</th><th>Status</th><th>Seat</th></tr></thead>
-                <tbody>
-                  {data.passengers.map((p: any) => (
-                    <tr key={p.passengerNo}><td>{p.name}</td><td>{String(p.status || '').replace('_', ' ')}{p.queuePosition ? ` (${p.queuePosition})` : ''}</td><td>{p.coachNumber ? `${p.coachNumber}/${p.seatNumber}` : '-'}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </>
-        )}
-      </div>
+      <PnrQuickCheck initialPnr={params.get('pnr') || ''} />
     </article>
   );
 }
@@ -182,9 +138,9 @@ function PnrCard() {
 export default function TrainInfoPage() {
   const { trains, error } = useTrains();
   return (
-    <PublicLayout>
-      <main className="info-main">
-        <h1>Train Info</h1>
+    <PublicLayout title="Train Info">
+      <main className="info-main" id="main">
+        <h1 className="t-display">Train <em>Info</em></h1>
         <p className="info-lead">Check a timetable, see if a train is running late, or look up a ticket.</p>
         {error && <div className="rrms-alert-error" role="alert" style={{ marginBottom: 16 }}>The train list could not be loaded. Check that the backend is running.</div>}
         <div className="info-grid">

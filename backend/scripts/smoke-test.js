@@ -25,9 +25,9 @@
 
 const BASE = String(process.argv[2] || process.env.SMOKE_BASE_URL || 'http://localhost:5000').replace(/\/+$/, '');
 
-const SEED_PASSENGER_PASSWORD = 'Password123!';
-const STAFF_LOGIN = { employeeId: 'EMP-TC-101', password: 'StaffPassword123!' };
-const ADMIN_LOGIN = { email: 'admin@railways.gov.in', password: 'AdminPassword123!' };
+const SEED_PASSENGER_PASSWORD = 'Demo@123';
+const STAFF_LOGIN = { employeeId: 'EMP-TC-101', password: 'Demo@123' };
+const ADMIN_LOGIN = { email: 'admin@rrms.in', password: 'Demo@123' };
 
 const rows = [];
 let halted = false;

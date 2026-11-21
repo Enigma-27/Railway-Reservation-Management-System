@@ -6,6 +6,8 @@ import { Notification, BroadcastNotificationPayload } from '../../types/notifica
 import { DataTable, Column } from '../../components/DataTable';
 import { Modal } from '../../components/Modal';
 import { PageHeader } from '../../components/PageHeader';
+import { RealStats } from '../../components/RealStats';
+import { reportService } from '../../services/reportService';
 import { formatDateTime } from '../../utils/format';
 
 export const NotificationsPage: React.FC = () => {
@@ -151,7 +153,7 @@ export const NotificationsPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-              Demo data
+              Sample data (list and broadcast)
             </span>
             <select
               value={readFilter}
@@ -183,6 +185,18 @@ export const NotificationsPage: React.FC = () => {
           </div>
         }
 
+      />
+
+      <RealStats
+        title="Notifications sent by the system (all users)"
+        load={async () => {
+          const n = await reportService.getNotificationStats();
+          return [
+            { label: 'Total sent', value: n.total },
+            { label: 'Unread', value: n.unread },
+            ...Object.entries(n.byType).map(([k, v]) => ({ label: k.replace(/_/g, ' ').toLowerCase(), value: v })),
+          ];
+        }}
       />
 
       <DataTable

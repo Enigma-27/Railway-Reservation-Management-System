@@ -165,16 +165,16 @@ async function runTests() {
 
     // Admin login
     const adminLogin = await request('POST', '/api/auth/admin/login', {
-      email: 'admin@railways.gov.in',
-      password: 'AdminPassword123!'
+      email: 'admin@rrms.in',
+      password: 'Demo@123'
     });
-    assert(adminLogin.status === 200, 'Admin (admin@railways.gov.in) logged in successfully');
+    assert(adminLogin.status === 200, 'Admin (admin@rrms.in) logged in successfully');
     const tokenAdmin = adminLogin.data.data.token;
 
     // Staff login
     const staffLogin = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin.status === 200, 'Staff (EMP-TC-101) logged in successfully');
     const tokenStaff = staffLogin.data.data.token;
@@ -182,15 +182,15 @@ async function runTests() {
     // Passenger Owner: user 25117 (Riya Gole, owner of booking 2849115626 on schedule 1063)
     const ownerLogin = await request('POST', '/api/auth/passenger/login', {
       email: 'user25117_9153@example.com',
-      password: 'Password123!'
+      password: 'Demo@123'
     });
     assert(ownerLogin.status === 200, 'Passenger Owner (user 25117) logged in successfully');
     const tokenOwner = ownerLogin.data.data.token;
 
     // Another Passenger: user 50001 (Rahul Sharma, non-owner)
     const otherLogin = await request('POST', '/api/auth/passenger/login', {
-      email: 'rahul.sharma@example.com',
-      password: 'Password123!'
+      email: 'passenger@rrms.in',
+      password: 'Demo@123'
     });
     assert(otherLogin.status === 200, 'Passenger Other (user 50001) logged in successfully');
     const tokenOther = otherLogin.data.data.token;
@@ -318,7 +318,7 @@ async function runTests() {
     const [u31132Rows] = await pool.query('SELECT email FROM USER_ACCOUNT WHERE user_id = 31132');
     const user31132Login = await request('POST', '/api/auth/passenger/login', {
       email: u31132Rows[0].email,
-      password: 'Password123!'
+      password: 'Demo@123'
     });
     assert(user31132Login.status === 200, 'Owner of 2849115627 logged in successfully');
     const tokenOwner31132 = user31132Login.data.data.token;
@@ -500,7 +500,7 @@ async function runTests() {
     const [u12470Rows] = await pool.query('SELECT email FROM USER_ACCOUNT WHERE user_id = 12470');
     const user12470Login = await request('POST', '/api/auth/passenger/login', {
       email: u12470Rows[0].email,
-      password: 'Password123!'
+      password: 'Demo@123'
     });
     const token12470 = user12470Login.data.data.token;
 
@@ -567,7 +567,7 @@ async function runTests() {
     const [u24062Rows] = await pool.query('SELECT email FROM USER_ACCOUNT WHERE user_id = 24062');
     const user24062Login = await request('POST', '/api/auth/passenger/login', {
       email: u24062Rows[0].email,
-      password: 'Password123!'
+      password: 'Demo@123'
     });
     assert(user24062Login.status === 200, 'Owner of 2849115629 logged in successfully');
     const tokenOwner24062 = user24062Login.data.data.token;

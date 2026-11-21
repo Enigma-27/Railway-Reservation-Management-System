@@ -129,3 +129,8 @@ When connecting to MySQL, the backend application driver (e.g., `mysql2`, TypeOR
 ### Rationale:
 By default, JavaScript database drivers convert MySQL `DATE` and `DATETIME` columns into JavaScript `Date` objects in UTC. Because Indian Standard Time (IST) is UTC+05:30, converting a date string like `'2026-10-18'` (stored as `2026-10-18 00:00:00`) into a JavaScript `Date` causes the driver to subtract 5 hours 30 minutes, producing `'2026-10-17T18:30:00.000Z'` and shifting the date backwards by one day.
 - **Rule**: Always retrieve `DATE`, `DATETIME`, and `TIMESTAMP` columns as raw strings (e.g., `'2026-10-18'` and `'2026-10-18 12:45:00'`), never as native JavaScript `Date` objects.
+
+## Final round (Prompt 15)
+
+- `03_procedures.sql`: `sp_create_booking` got the Tatkal Aadhaar rule (step 2f, error `AADHAAR_REQUIRED`) and the monthly limit now uses `v_as_of` (the test clock). `07_tests.sql` has 70 tests (new: `test_tatkal_aadhaar_rule`, `test_monthly_limit_test_clock_month`; the monthly-limit test now creates its rows on the test-clock date).
+- Apply without a reload: `node database/load/apply-sql.js 02_functions 03_procedures 04_triggers 07_tests --run-tests`.

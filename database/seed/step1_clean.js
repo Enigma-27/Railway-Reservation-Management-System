@@ -364,7 +364,7 @@ async function cleanStep1() {
       const aadhaarVerified = (userId % 5 < 2) ? 1 : 0; // ~40% true
 
       const salt = `salt_user_${userId}`;
-      const passwordHash = hashPassword('Password123!', salt);
+      const passwordHash = hashPassword('Demo@123', salt);
 
       userRows.push({
         user_id: userId,
@@ -385,8 +385,8 @@ async function cleanStep1() {
   // Rahul Sharma (50001)
   userRows.push({
     user_id: 50001,
-    email: 'rahul.sharma@example.com',
-    password_hash: hashPassword('Password123!', 'salt_user_50001'),
+    email: 'passenger@rrms.in',
+    password_hash: hashPassword('Demo@123', 'salt_user_50001'),
     phone: '+91-9876543210',
     full_name: 'Rahul Sharma',
     role: 'PASSENGER',
@@ -398,13 +398,13 @@ async function cleanStep1() {
   // Priya Patel (50002)
   userRows.push({
     user_id: 50002,
-    email: 'priya.patel@example.com',
-    password_hash: hashPassword('Password123!', 'salt_user_50002'),
+    email: 'chain@rrms.in',
+    password_hash: hashPassword('Demo@123', 'salt_user_50002'),
     phone: '+91-9876543211',
     full_name: 'Priya Patel',
     role: 'PASSENGER',
     account_status: 'ACTIVE',
-    aadhaar_verified: 0,
+    aadhaar_verified: 1,
     created_at: '2026-02-20 11:45:00'
   });
 
@@ -412,7 +412,7 @@ async function cleanStep1() {
   userRows.push({
     user_id: 50003,
     email: 'amit.verma@example.com',
-    password_hash: hashPassword('Password123!', 'salt_user_50003'),
+    password_hash: hashPassword('Demo@123', 'salt_user_50003'),
     phone: '+91-9876543212',
     full_name: 'Amit Verma',
     role: 'PASSENGER',
@@ -425,7 +425,7 @@ async function cleanStep1() {
   userRows.push({
     user_id: 50004,
     email: 'vikram.singh@railways.gov.in',
-    password_hash: hashPassword('StaffPassword123!', 'salt_user_50004'),
+    password_hash: hashPassword('Demo@123', 'salt_user_50004'),
     phone: '+91-9876543213',
     full_name: 'Vikram Singh',
     role: 'STAFF',
@@ -438,7 +438,7 @@ async function cleanStep1() {
   userRows.push({
     user_id: 50005,
     email: 'sunita.rao@railways.gov.in',
-    password_hash: hashPassword('StaffPassword123!', 'salt_user_50005'),
+    password_hash: hashPassword('Demo@123', 'salt_user_50005'),
     phone: '+91-9876543214',
     full_name: 'Sunita Rao',
     role: 'STAFF',
@@ -451,7 +451,7 @@ async function cleanStep1() {
   userRows.push({
     user_id: 50006,
     email: 'ramesh.nair@railways.gov.in',
-    password_hash: hashPassword('StaffPassword123!', 'salt_user_50006'),
+    password_hash: hashPassword('Demo@123', 'salt_user_50006'),
     phone: '+91-9876543215',
     full_name: 'Ramesh Nair',
     role: 'STAFF',
@@ -463,8 +463,8 @@ async function cleanStep1() {
   // Rajesh Gupta (Admin 50007)
   userRows.push({
     user_id: 50007,
-    email: 'admin@railways.gov.in',
-    password_hash: hashPassword('AdminPassword123!', 'salt_user_50007'),
+    email: 'admin@rrms.in',
+    password_hash: hashPassword('Demo@123', 'salt_user_50007'),
     phone: '+91-9876543216',
     full_name: 'Rajesh Gupta',
     role: 'ADMIN',

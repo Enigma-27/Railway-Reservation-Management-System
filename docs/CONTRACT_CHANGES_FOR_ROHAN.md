@@ -109,3 +109,14 @@ Written 2026-11-20.
 ## 6. Quick test for the frontend
 
 Run `npm run test:smoke` in `backend` with the backend running (after `npm run demo:refresh` and `npm run demo:chain`). It calls 28 routes the way a frontend does and prints a PASS or FAIL table.
+
+## Prompt 15: final round
+
+- **New public route** `GET /api/pnr-status/:pnr`: status only, rate limited (429 `TOO_MANY_REQUESTS`). The landing page and Train Info use it instead of the signed-in PNR route.
+- **New admin routes** `POST /api/admin/schedules/:scheduleId/delay` (set or clear a delay, audited) and `GET /api/admin/analytics/:tab` (real report numbers).
+- **Changed answer** `GET /api/staff/schedules/:scheduleId/chart` for an unprepared chart: `200` with `data: []` and `chartPrepared: false` (was `400 BAD_REQUEST`). A prepared chart adds `chartPrepared: true`.
+- **New error code** `AADHAAR_REQUIRED` (HTTP 400) on Tatkal bookings without an Aadhaar-verified account (counter: without an Aadhaar ID proof).
+- **Counter booking** answers `403 FORBIDDEN` when the staff member has no active `COUNTER_DUTY` shift.
+- **Staff login** accepts the short id `TC101` (same as `EMP-TC-101`).
+- **Demo accounts changed**: `passenger@rrms.in`, `chain@rrms.in`, `TC101`, `admin@rrms.in`, password `Demo@123`. The seed CSV and the generator `database/seed/step1_clean.js` were updated; every seeded passenger now uses `Demo@123` too.
+- **New scripts**: `npm run demo:clear`, `npm run check:routes`, `npm run test:d6`.

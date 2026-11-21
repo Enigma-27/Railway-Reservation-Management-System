@@ -79,14 +79,14 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ setActiveTab }) => {
             <p className="text-[11px] text-slate-500 leading-relaxed">
               Officer: <strong className="text-slate-800 font-semibold">{activeStaff.name}</strong>
               {' · '}<span className="text-slate-600">{activeStaff.designation}</span>
-              {' · '}<span className="font-mono text-[#2259c2] font-bold">{activeStaff.employeeId}</span>
+              {' · '}<span className="font-mono text-brand font-bold">{activeStaff.employeeId}</span>
               {' · '}<strong className="text-slate-800 font-semibold">{station?.stationName || '—'}</strong>
             </p>
           </div>
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => setActiveTab('manifest')}
-              className="px-4 py-2 bg-[#2259c2] hover:bg-[#1748a5] text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+              className="px-4 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
             >
               <span>Inspect Manifest</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -146,8 +146,8 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ setActiveTab }) => {
               Mark absent passengers as <code className="text-rose-700 font-mono font-bold bg-rose-50 px-1 rounded">NO_SHOW</code> after departure. Their berth automatically promotes waitlisted RAC passengers.
             </p>
           </div>
-          <div className="bg-slate-50 border-l-4 border-[#2259c2] border border-slate-200 p-4 rounded-2xl">
-            <div className="font-bold text-[#2259c2] text-xs mb-2 uppercase tracking-wide">3. On-Spot Fines & Challans</div>
+          <div className="bg-slate-50 border-l-4 border-brand border border-slate-200 p-4 rounded-2xl">
+            <div className="font-bold text-brand text-xs mb-2 uppercase tracking-wide">3. On-Spot Fines & Challans</div>
             <p className="text-[11px] text-slate-600 leading-relaxed">
               Issue instant digital penalty challans for ticketless or irregular travel. Generate printable IRCTC e-receipts on the mobile terminal.
             </p>

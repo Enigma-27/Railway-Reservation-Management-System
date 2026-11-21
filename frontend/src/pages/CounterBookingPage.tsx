@@ -96,7 +96,7 @@ export const CounterBookingPage: React.FC = () => {
       {/* Hero Header */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-[#2259c2] text-white flex items-center justify-center shadow-xs">
+          <div className="w-10 h-10 rounded-xl bg-brand text-white flex items-center justify-center shadow-xs">
             <Ticket className="w-5 h-5" />
           </div>
           <div>
@@ -147,7 +147,7 @@ export const CounterBookingPage: React.FC = () => {
                   <select
                     value={sourceStationId}
                     onChange={(e) => setSourceStationId(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
+                    className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
                   >
                     {stops.map(r => (
                       <option key={`from-${r.routeId}`} value={r.stationId}>
@@ -158,7 +158,7 @@ export const CounterBookingPage: React.FC = () => {
                   <select
                     value={destStationId}
                     onChange={(e) => setDestStationId(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
+                    className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
                   >
                     {stops.map(r => (
                       <option key={`to-${r.routeId}`} value={r.stationId}>
@@ -175,7 +175,7 @@ export const CounterBookingPage: React.FC = () => {
                   type="date"
                   value={journeyDate}
                   onChange={(e) => setJourneyDate(e.target.value)}
-                  className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-3 py-2 text-xs text-slate-800 outline-none font-mono"
+                  className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-3 py-2 text-xs text-slate-800 outline-none font-mono"
                 />
               </div>
 
@@ -185,7 +185,7 @@ export const CounterBookingPage: React.FC = () => {
                   <select
                     value={classType}
                     onChange={(e) => setClassType(e.target.value)}
-                    className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
+                    className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
                   >
                     <option value="1A">1A</option>
                     <option value="2A">2A</option>
@@ -195,7 +195,7 @@ export const CounterBookingPage: React.FC = () => {
                   <select
                     value={quota}
                     onChange={(e) => setQuota(e.target.value)}
-                    className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
+                    className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
                   >
                     <option value="GENERAL">GENERAL</option>
                     <option value="TATKAL">TATKAL</option>
@@ -218,7 +218,7 @@ export const CounterBookingPage: React.FC = () => {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="As per Government ID"
-                  className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-3 py-2 text-xs text-slate-800 outline-none"
+                  className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-3 py-2 text-xs text-slate-800 outline-none"
                 />
               </div>
 
@@ -231,12 +231,12 @@ export const CounterBookingPage: React.FC = () => {
                     max={120}
                     value={age}
                     onChange={(e) => setAge(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-2 py-2 text-xs text-slate-800 outline-none font-mono"
+                    className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-2 py-2 text-xs text-slate-800 outline-none font-mono"
                   />
                   <select
                     value={gender}
                     onChange={(e) => setGender(e.target.value as any)}
-                    className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
+                    className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-2 py-2 text-xs text-slate-800 outline-none"
                   >
                     <option value="MALE">M</option>
                     <option value="FEMALE">F</option>
@@ -250,7 +250,7 @@ export const CounterBookingPage: React.FC = () => {
                 <select
                   value={berthPreference}
                   onChange={(e) => setBerthPreference(e.target.value)}
-                  className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-3 py-2 text-xs text-slate-800 outline-none"
+                  className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-3 py-2 text-xs text-slate-800 outline-none"
                 >
                   <option value="LOWER">LOWER</option>
                   <option value="MIDDLE">MIDDLE</option>
@@ -264,7 +264,7 @@ export const CounterBookingPage: React.FC = () => {
                 <select
                   value={idType}
                   onChange={(e) => setIdType(e.target.value)}
-                  className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-3 py-2 text-xs text-slate-800 outline-none"
+                  className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-3 py-2 text-xs text-slate-800 outline-none"
                 >
                   <option value="AADHAAR">Aadhaar Card</option>
                   <option value="PAN">PAN Card</option>
@@ -281,7 +281,7 @@ export const CounterBookingPage: React.FC = () => {
                   value={idNumber}
                   onChange={(e) => setIdNumber(e.target.value)}
                   placeholder="e.g. 1234-5678-9012"
-                  className="w-full bg-white border border-slate-200 focus:border-[#2259c2] rounded-lg px-3 py-2 text-xs text-slate-800 outline-none font-mono"
+                  className="w-full bg-white border border-slate-200 focus:border-brand rounded-lg px-3 py-2 text-xs text-slate-800 outline-none font-mono"
                 />
               </div>
             </div>
@@ -290,7 +290,7 @@ export const CounterBookingPage: React.FC = () => {
           {/* Payment & Confirmation */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-blue-50/60 border border-blue-200 rounded-xl">
             <div className="flex items-center gap-3">
-              <CreditCard className="w-5 h-5 text-[#2259c2]" />
+              <CreditCard className="w-5 h-5 text-brand" />
               <div>
                 <div className="text-xs font-bold text-slate-900">Cash Payment at Counter</div>
                 <div className="text-[11px] text-slate-500">Collected in full by Officer {activeStaff.name} before PNR generation.</div>
@@ -300,7 +300,7 @@ export const CounterBookingPage: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-2.5 bg-[#2259c2] hover:bg-[#1748a5] disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+              className="px-6 py-2.5 bg-brand hover:bg-brand-hover disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               {loading ? (
                 <>

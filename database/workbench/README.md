@@ -56,3 +56,6 @@ The stories that need an old date set the clock themselves with `SET @as_of_time
 ## 5. Checking the files without Workbench
 
 The files were run statement by statement against a freshly loaded seed with a small throwaway script: every query returns rows, and the only errors are the error demos marked `RUN ALONE (error demo)`.
+
+
+Note (final round): the Workbench stories use the seed rows and SQL only, so they are not affected by the new logins. Reload with `node database/load/run-all.js` before running them.

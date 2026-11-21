@@ -127,23 +127,23 @@ async function runTests() {
     // 1. Staff Member: Ticket Collector (EMP-TC-101, staffId: 1)
     const staffLogin = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin.status === 200, 'Staff (EMP-TC-101) logged in successfully');
     const tokenStaff = staffLogin.data.data.token;
 
     // 2. Admin
     const adminLogin = await request('POST', '/api/auth/admin/login', {
-      email: 'admin@railways.gov.in',
-      password: 'AdminPassword123!'
+      email: 'admin@rrms.in',
+      password: 'Demo@123'
     });
-    assert(adminLogin.status === 200, 'Admin (admin@railways.gov.in) logged in successfully');
+    assert(adminLogin.status === 200, 'Admin (admin@rrms.in) logged in successfully');
     const tokenAdmin = adminLogin.data.data.token;
 
     // 3. Passenger
     const userLogin = await request('POST', '/api/auth/passenger/login', {
       email: 'user26009_5357@example.com',
-      password: 'Password123!'
+      password: 'Demo@123'
     });
     assert(userLogin.status === 200, 'Passenger logged in successfully');
     const tokenPassenger = userLogin.data.data.token;

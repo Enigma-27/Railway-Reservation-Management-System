@@ -733,8 +733,24 @@ proc_label: BEGIN
         SET v_idx = v_idx + 1;
     END WHILE;
 
-    -- 3. Check Monthly ticket limit (BR-B15)
-    SET v_can_book = fn_check_monthly_ticket_limit(p_user_id, NOW());
+    -- 2f. Tatkal needs an Aadhaar-verified account (BR-Q3, BR-Q6). At the counter (BR-CB5) the staff member enters an
+    --     Aadhaar ID proof for at least one passenger instead (the OTP step is simulated). Error code: AADHAAR_REQUIRED.
+    IF p_quota = 'TATKAL' THEN
+        IF p_channel = 'COUNTER' THEN
+            IF JSON_SEARCH(p_passengers, 'one', 'AADHAAR', NULL, '$[*].concession_proof_type') IS NULL THEN
+                IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+                SET p_out_error_code = 'AADHAAR_REQUIRED';
+                LEAVE proc_label;
+            END IF;
+        ELSEIF COALESCE((SELECT aadhaar_verified FROM USER_ACCOUNT WHERE user_id = p_user_id), 0) = 0 THEN
+            IF p_manage_tx = 1 THEN ROLLBACK; END IF;
+            SET p_out_error_code = 'AADHAAR_REQUIRED';
+            LEAVE proc_label;
+        END IF;
+    END IF;
+
+    -- 3. Check Monthly ticket limit (BR-B15). "Now" is the project test clock COALESCE(@as_of_time, NOW()) (v_as_of).
+    SET v_can_book = fn_check_monthly_ticket_limit(p_user_id, v_as_of);
     IF v_can_book = 0 THEN
         IF p_manage_tx = 1 THEN ROLLBACK; END IF;
         SET p_out_error_code = 'MONTHLY_LIMIT_EXCEEDED';

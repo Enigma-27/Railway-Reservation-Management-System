@@ -42,6 +42,7 @@ Aliases (same handler, two addresses): `/api/admin/route-stops` = `/api/admin/ro
 | GET | `/api/alerts` | Public | Service alerts: delayed or cancelled runs of the next 7 days |
 | GET | `/api/live-trains` | Public | Every train run of one date with live seat numbers (filters, paging) |
 | GET | `/api/live-trains/:scheduleId` | Public | One run: per class and per quota seats, queues and current fare |
+| GET | `/api/pnr-status/:pnr` | Public | Status only of a 10-digit PNR (no names or personal data), rate limited (15 per minute per address) |
 | GET | `/api/booking-rules` | Public | The real booking rules: passenger limits, senior ages, Tatkal rules, concession list |
 | GET | `/api/contact-info` | Public | Helpline, e-mail and address of the Contact Us panel (from SETTING) |
 | POST | `/api/contact` | Public | Send a Contact Us message (saved in MongoDB) |
@@ -100,6 +101,8 @@ Aliases (same handler, two addresses): `/api/admin/route-stops` = `/api/admin/ro
 | :--- | :--- | :--- | :--- |
 | GET | `/api/admin/schedules` | Admin | List dated runs with class inventory |
 | POST | `/api/admin/schedules/:scheduleId/chart-preparation` | Admin | Run chart preparation for a run |
+| POST | `/api/admin/schedules/:scheduleId/delay` | Admin | Set (1 to 1440 minutes) or clear (0) the delay of a run; audited; shown on Alerts and Live Trains |
+| GET | `/api/admin/analytics/:tab` | Admin | Real numbers for Reports and Notifications: `revenue`, `bookings`, `cancellations`, `occupancy`, `delays`, `complaints`, `notifications`, `summary` |
 | GET | `/api/admin/settings` | Admin | List settings |
 | PUT | `/api/admin/settings/:key` | Admin | Change a setting (checked by a trigger, audited) |
 | GET | `/api/admin/contact-messages` | Admin | Contact Us messages (MongoDB), newest first, optional `?status=NEW` or `DONE` |
@@ -242,7 +245,8 @@ Every error answers `{ "success": false, "error": { "code": "...", "message": ".
 | `CONCESSION_PROOF_REQUIRED` | 400 | A concession other than NONE was chosen without proof type and reference. |
 | `NO_ADULT_PASSENGER` | 400 | The booking has nobody aged 18 or more. |
 | `BERTH_PREFERENCE_NOT_MET` | 400 | "Book only if my berth is given" was ticked and the berth, or a confirmed seat, could not be given. |
-| `MONTHLY_LIMIT_EXCEEDED` | 400 | More than 12 bookings in the calendar month (24 if Aadhaar verified). Counted by booking date, includes cancelled, excludes FAILED. |
+| `MONTHLY_LIMIT_EXCEEDED` | 400 | More than 12 bookings in the calendar month (24 if Aadhaar verified). Counted by booking date, includes cancelled, excludes FAILED. The month is the one of the project test clock `COALESCE(@as_of_time, NOW())`. |
+| `AADHAAR_REQUIRED` | 400 | Tatkal needs an Aadhaar-verified account (BR-Q3, BR-Q6). At the counter (BR-CB5) one passenger must have an Aadhaar ID proof. |
 | `CHART_PREPARED` | 400 | The chart of the run is prepared (8 hours before origin departure). New bookings, counter bookings and online cancellations are refused. |
 | `TRANSACTION_FAILED` | 400 | The booking procedure hit a database error and rolled everything back. Nothing was saved. Try again. |
 | `PAYMENT_AMOUNT_MISMATCH` | 400 | The paid amount is not the booking fare. No ticket is issued. |
@@ -294,9 +298,9 @@ Authorization: Bearer <jwt_or_mock_token>
 ```json
 {
   "name": "Rahul Sharma",
-  "email": "rahul.sharma@example.com",
+  "email": "passenger@rrms.in",
   "phone": "+91-9876543210",
-  "password": "Password123!"
+  "password": "Demo@123"
 }
 ```
 - **Response (201 Created)**:
@@ -306,7 +310,7 @@ Authorization: Bearer <jwt_or_mock_token>
   "data": {
     "userId": 1,
     "name": "Rahul Sharma",
-    "email": "rahul.sharma@example.com",
+    "email": "passenger@rrms.in",
     "phone": "+91-9876543210",
     "role": "PASSENGER",
     "accountStatus": "ACTIVE",
@@ -325,8 +329,8 @@ Authorization: Bearer <jwt_or_mock_token>
 - **Request Body**:
 ```json
 {
-  "email": "rahul.sharma@example.com",
-  "password": "Password123!"
+  "email": "passenger@rrms.in",
+  "password": "Demo@123"
 }
 ```
 - **Response (200 OK)**:
@@ -354,7 +358,7 @@ Authorization: Bearer <jwt_or_mock_token>
 ```json
 {
   "employeeId": "EMP-TC-101",
-  "password": "StaffPassword123!"
+  "password": "Demo@123"
 }
 ```
 - **Response (200 OK)**:
@@ -383,8 +387,8 @@ Authorization: Bearer <jwt_or_mock_token>
 - **Request Body**:
 ```json
 {
-  "email": "admin@railways.gov.in",
-  "password": "AdminPassword123!"
+  "email": "admin@rrms.in",
+  "password": "Demo@123"
 }
 ```
 - **Response (200 OK)**:
@@ -672,7 +676,7 @@ Authorization: Bearer <jwt_or_mock_token>
 ---
 
 ### 3.6 Public Run Status, Service Alerts and Contact Us (landing page and Train Info)
-These three routes need no login. They feed the landing page, the Train Info page and the floating Contact Us button.
+These three routes need no login. They feed the landing page, the Train Info page and the Contact drawer (opened from the Contact link in the header and footer). No API route changed in the design overhaul.
 
 #### 3.6.1 Run status (Track your train)
 - **Method / Endpoint**: `GET /api/trains/:trainId/run-status?journeyDate=YYYY-MM-DD` (`:trainId` is the train id or the train number)
@@ -805,6 +809,25 @@ The Live Trains window of the site (`/live-trains`). Seat numbers come from `SCH
 - **Method / Endpoint**: `GET /api/contact-info`
 - **Role**: Public
 - **Response (200 OK)**: `{ "success": true, "data": { "helpline": "...", "email": "...", "address": "..." } }`, read from the `SETTING` rows `CONTACT_HELPLINE`, `CONTACT_EMAIL`, `CONTACT_ADDRESS` (demo values; change them in Admin, Settings).
+
+### 3.8 Public PNR status (no login)
+
+`GET /api/pnr-status/:pnr` answers the status of a ticket for anybody who knows the 10-digit PNR. It exists for the landing page and Train Info. It returns ONLY status information:
+
+- **Method / Endpoint**: `GET /api/pnr-status/:pnr` (public)
+- **Rate limit**: 15 lookups per minute per address; more answers `429 TOO_MANY_REQUESTS` with a `Retry-After` header (a PNR is guessable, so scanning is slowed down).
+- **Errors**: `400 VALIDATION_ERROR` (not exactly 10 digits), `404 NOT_FOUND` (no booking), `429 TOO_MANY_REQUESTS`.
+- **Response (200 OK)**:
+```json
+{ "success": true, "data": {
+  "pnr": "2849116375", "bookingStatus": "CONFIRMED", "trainNumber": "12951", "trainName": "Mumbai Rajdhani Express (12951)",
+  "journeyDate": "2026-11-22", "classType": "1A", "runStatus": "ON_TIME", "delayMinutes": 0,
+  "boardingStation": { "stationCode": "BCT", "stationName": "Mumbai Central" },
+  "destinationStation": { "stationCode": "NDLS", "stationName": "New Delhi" },
+  "passengers": [ { "passengerNo": 1, "status": "RAC", "shortStatus": "RAC", "queuePosition": "RAC/2" } ] } }
+```
+- **Never returned**: passenger names, ages, genders, ID proofs, contact data, the owner, fares, coach or seat numbers. `shortStatus` is `CNF`, `RAC`, `WL` or `CAN`. The full details stay behind the sign-in (`GET /api/bookings/:pnr` for the owner, `GET /api/staff/pnr/:pnr` for staff and admin).
+
 
 ## 4. Booking & Ticket Lifecycle APIs
 
@@ -1439,7 +1462,7 @@ When the payment arrived after the hold, `paidAfterHoldExpired` is `true`, `book
 - Each chart row now also carries the LIVE state from the database (the chart itself is a frozen snapshot): `reservationStatus` (`BOARDED` and `NO_SHOW` are saved on the reservation), `verificationResult`, `verificationRemarks` and `verifiedAt` (the latest `TICKET_VERIFICATION` of the passenger). The staff portal reads boarding and verification from these fields, so they survive a page reload.
 - **Method / Endpoint**: `GET /api/staff/schedules/:scheduleId/chart`
 - **Role**: `STAFF` (must have assignment for that run) or `ADMIN`
-- **Behavior**: Returns immutable `CHART_SNAPSHOT` rows for the schedule. Refuses with `400 Bad Request` if the chart has not been prepared yet.
+- **Behavior**: Returns immutable `CHART_SNAPSHOT` rows for the schedule. If the chart has not been prepared yet this is NOT an error: `200 OK` with `"data": []`, `"chartPrepared": false` and a `message` (the staff screen shows a friendly "not prepared yet" state). A prepared chart answers `"chartPrepared": true`.
 - **Response (200 OK)**:
 ```json
 {
@@ -2181,7 +2204,7 @@ When the payment arrived after the hold, `paidAfterHoldExpired` is `true`, `book
   "email": "amit.patel@railways.gov.in",
   "phone": "+91-9876543219",
   "designation": "TRAIN_TICKET_EXAMINER",
-  "password": "Password123!"
+  "password": "Demo@123"
 }
 ```
 - **Response (201 Created)**:
@@ -2539,7 +2562,7 @@ These routes list and retry `REFUND` rows. They are not the same as `/api/admin/
     {
       "userId": 50001,
       "name": "Rahul Sharma",
-      "email": "rahul.sharma@example.com",
+      "email": "passenger@rrms.in",
       "phone": "+91-9876543210",
       "role": "PASSENGER",
       "accountStatus": "ACTIVE",
@@ -2628,6 +2651,21 @@ These routes list and retry `REFUND` rows. They are not the same as `/api/admin/
 
 #### 7.9.3 Quotas
 - `GET /api/admin/quotas` returns the five quotas (`quota`, `label`, `seatShare`, `rule`, `maxPassengers`, `concession`, `queue`) with real usage on the upcoming runs (`confirmedPassengers`, `racPassengers`, `waitingListPassengers`). Read only: the seat shares are built into `sp_create_booking` (BR-Q10).
+
+### 7.10 Admin delay control and real analytics (Prompt 15)
+
+#### 7.10.1 Set or clear the delay of a run
+- **Method / Endpoint**: `POST /api/admin/schedules/:scheduleId/delay` (ADMIN)
+- **Body**: `{ "delayMinutes": 95, "reason": "Signal failure" }`. `delayMinutes` is an integer from 0 to 1440; **0 clears the delay**. `reason` is optional (max 200 characters).
+- **Effect**: writes `TRAIN_SCHEDULE.delay_minutes` and `status` (`DELAYED` or `ON_TIME`), the same place staff write (`POST /api/staff/delays`), and the MongoDB live status. `GET /api/alerts`, Live Trains and Track your train show it at once. One `AUDIT_LOG` row (`UPDATE_SCHEDULE_DELAY` or `CLEAR_SCHEDULE_DELAY`) keeps the old and new values and the reason. Passengers with a CONFIRMED or RAC ticket on the run get a `DELAY` notification.
+- **Errors**: `400` (bad minutes), `403` (not admin), `404` (unknown run), `409` (the run is CANCELLED or COMPLETED).
+- **Response (200 OK)**: `{ "scheduleId": 1435, "delayMinutes": 95, "status": "DELAYED", "previousDelayMinutes": 0, "passengersNotified": 12 }`
+
+#### 7.10.2 Real analytics
+- **Method / Endpoint**: `GET /api/admin/analytics/:tab` (ADMIN), `tab` = `revenue`, `bookings`, `cancellations`, `occupancy`, `delays`, `complaints`, `notifications` or `summary`. An unknown tab answers `400`.
+- The rows have the shapes the Reports page uses: revenue (`trainNumber, trainName, classType, ticketCount, totalRevenue, period`), bookings per day (`date, totalBookings, confirmedCount, racCount, waitingListCount, cancelledCount`), cancellations (`pnr, trainNumber, cancellationDate, cancellationCharge, refundAmount, status`), occupancy (`..., totalCapacity, bookedSeats, occupancyPercentage`), delays (`trainNumber, trainName, journeyDate, status, delayMinutes`), complaints per category (MongoDB). `notifications` answers `{ total, unread, byType }` (MongoDB). `summary` answers `{ bookings, confirmed, rac, waiting, cancelled, revenue, refunded, pendingRefunds, occupancyPct, pendingTdr, totalTdr }`.
+- Revenue is the money received (SUCCESS payments); refunds are shown separately. On an empty database every list is empty and the summary is all zeros.
+
 
 ## 8. Passenger & Public MongoDB APIs
 

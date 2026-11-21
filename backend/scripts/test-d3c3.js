@@ -152,8 +152,8 @@ async function runTests() {
     console.log('\n--- SETUP: Authenticating Test Users ---');
 
     const adminLogin = await request('POST', '/api/auth/admin/login', {
-      email: 'admin@railways.gov.in',
-      password: 'AdminPassword123!'
+      email: 'admin@rrms.in',
+      password: 'Demo@123'
     });
     assert(adminLogin.status === 200, 'Admin logged in successfully');
     const tokenAdmin = adminLogin.data.data.token;
@@ -161,25 +161,25 @@ async function runTests() {
 
     const staffLogin1 = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin1.status === 200, 'Staff 1 (EMP-TC-101) logged in successfully');
     const tokenStaff1 = staffLogin1.data.data.token;
     const staff1UserId = staffLogin1.data.data.userId;
 
     const passengerLogin1 = await request('POST', '/api/auth/passenger/login', {
-      email: 'rahul.sharma@example.com',
-      password: 'Password123!'
+      email: 'passenger@rrms.in',
+      password: 'Demo@123'
     });
-    assert(passengerLogin1.status === 200, 'Passenger 1 (rahul.sharma@example.com) logged in successfully');
+    assert(passengerLogin1.status === 200, 'Passenger 1 (passenger@rrms.in) logged in successfully');
     const tokenPass1 = passengerLogin1.data.data.token;
     const pass1UserId = passengerLogin1.data.data.userId;
 
     const passengerLogin2 = await request('POST', '/api/auth/passenger/login', {
-      email: 'priya.patel@example.com',
-      password: 'Password123!'
+      email: 'chain@rrms.in',
+      password: 'Demo@123'
     });
-    assert(passengerLogin2.status === 200, 'Passenger 2 (priya.patel@example.com) logged in successfully');
+    assert(passengerLogin2.status === 200, 'Passenger 2 (chain@rrms.in) logged in successfully');
     const tokenPass2 = passengerLogin2.data.data.token;
     const pass2UserId = passengerLogin2.data.data.userId;
 

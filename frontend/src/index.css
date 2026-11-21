@@ -2,54 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Thin scrollbar (matching Admin design) ───────────────────────── */
-.scrollbar-thin {
-  scrollbar-width: thin;
-  scrollbar-color: var(--rrms-primary) #e2e8f0;
-}
-.scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: #e2e8f0;
-}
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: var(--rrms-primary);
-  border-radius: 3px;
-}
+/* Tokens, buttons, cards, chips, toasts, skeletons: public/rrms-theme.css. Colour channels: public/rrms-palette.css. */
 
-/* ── Focus visible ring (accessibility) ───────────────────────── */
-:focus-visible {
-  outline: 2px solid var(--rrms-primary);
-  outline-offset: 2px;
-}
+html { scroll-behavior: smooth; }
+body { font-family: var(--rrms-font); background: var(--rrms-bg); color: var(--rrms-text); }
+h1, h2, h3 { font-family: var(--rrms-font-display); letter-spacing: -0.015em; font-weight: 500; }
 
-/* ── Smooth transitions ──────────────────────────────────── */
-* {
-  transition-property: color, background-color, border-color, opacity;
-  transition-duration: 150ms;
-  transition-timing-function: ease-in-out;
-}
+/* thin themed scrollbar */
+.scrollbar-thin { scrollbar-width: thin; scrollbar-color: var(--rrms-border) transparent; }
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: var(--rrms-border); border-radius: 3px; }
 
-body {
-  font-family: var(--rrms-font);
-  background-color: var(--rrms-bg);
-  color: var(--rrms-text);
-}
+/* cheap colour fade on interactive things only (not on every element) */
+a, button, input, select, textarea { transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s; }
 
 /* Print Rules */
 @media print {
-  body * {
-    visibility: hidden;
-  }
-  #printableReceiptBox, #printableReceiptBox * {
-    visibility: visible;
-  }
-  #printableReceiptBox {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-  }
+  body * { visibility: hidden; }
+  #printableReceiptBox, #printableReceiptBox * { visibility: visible; }
+  #printableReceiptBox { position: absolute; left: 0; top: 0; width: 100%; }
 }
+
+/* skip link (keyboard users): visible only while focused */
+.skip-link { position: fixed; left: 12px; top: -60px; z-index: 10100; padding: 10px 16px; border-radius: 10px; background: var(--rrms-accent); color: var(--rrms-on-accent); font: 700 13px var(--rrms-font); text-decoration: none; transition: top .15s; }
+.skip-link:focus { top: 12px; }
+.portal-h1 { margin: 0 0 14px; font-size: clamp(28px, 3vw, 38px); line-height: 1.1; }
+.portal-h1 em { font-style: italic; font-weight: 400; color: var(--rrms-accent-text); }
+main:focus { outline: none; }
+.route-loading { display: grid; place-items: center; min-height: 40vh; color: var(--rrms-text-muted); font: 500 13px var(--rrms-font-mono); }

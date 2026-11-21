@@ -80,7 +80,7 @@ export const ContactMessagesPage: React.FC = () => {
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${m.status === 'DONE' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
                   {m.status === 'DONE' ? 'Done' : 'To do'}
                 </span>
-                <button type="button" onClick={() => toggle(m)} disabled={busyId === m.messageId} className="btn-secondary" aria-label={m.status === 'DONE' ? `Open the message from ${m.name} again` : `Mark the message from ${m.name} done`}>
+                <button type="button" onClick={() => toggle(m)} disabled={busyId === m.messageId} className="btn-secondary" aria-label={m.status === 'DONE' ? `Open again: message from ${m.name}` : `Mark done: message from ${m.name}`}>
                   {m.status === 'DONE' ? <><RotateCcw className="w-4 h-4" aria-hidden="true" /> Open again</> : <><CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Mark done</>}
                 </button>
               </div>

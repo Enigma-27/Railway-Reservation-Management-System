@@ -20,7 +20,7 @@ export const staffService = {
 
   async createStaff(payload: CreateStaffPayload): Promise<Staff> {
     const employeeNo = payload.employeeNo || payload.employeeId || `EMP-${Date.now().toString().slice(-4)}`;
-    const password = payload.password || 'StaffPassword123!';
+    const password = payload.password || 'Demo@123';
 
     if (isServiceMock('staff')) {
       await simulateLatency();

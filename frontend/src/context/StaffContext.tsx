@@ -21,6 +21,7 @@ import {
 } from '../services/staffApiService';
 import { API_CONFIG } from '../admin/config/api.config';
 import { nowIndiaDateTime } from '../utils/formatters';
+import { toast as sharedToast } from '../ui/toast';
 
 /**
  * Staff portal state.
@@ -185,11 +186,8 @@ export const StaffProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const id = Date.now() + Math.random();
-    setToasts(prev => [...prev, { id, msg, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 4000);
+    // one toast system for the whole site (src/ui/toast.tsx)
+    sharedToast(msg, type);
   };
 
   // Load the real assignment, chart, stations, train route and live status
@@ -302,7 +300,7 @@ export const StaffProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setChartStatus({ loading: false, error: null, prepared: true });
         } else {
           setServerChart([]);
-          setChartStatus({ loading: false, error: null, prepared: false });
+          setChartStatus({ loading: false, error: 'The chart has not been prepared yet for this run. It is prepared before departure.', prepared: false });
         }
       } catch (chartErr: any) {
         setServerChart([]);

@@ -135,3 +135,7 @@ node database/seed/step1_clean.js && node database/seed/step2_remap.js && node d
 
 ### Rolling the Booking Window Forward
 The script `database/seed/step3_generate.js` uses dynamic date parameterization (`dates` array). To roll the 7-day window forward in the future, simply update the base date string; the deterministic random generator guarantees that identical fill plans and booking distributions are reproduced seamlessly.
+
+## Demo accounts (final round)
+
+`USER_ACCOUNT.csv` rows 50001 to 50007 and every synthetic passenger use the scrypt hash of `Demo@123`. Logins: `passenger@rrms.in` (50001), `chain@rrms.in` (50002, Aadhaar verified), staff `TC101` = `EMP-TC-101` (50004), admin `admin@rrms.in` (50007). `STAFF_ASSIGNMENT.csv` has three standing `COUNTER_DUTY` rows (2026 to 2036). The generator `seed/step1_clean.js` writes the same accounts.

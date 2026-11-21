@@ -250,7 +250,8 @@ async function getCurrentAssignment(req, res, next) {
       return next(new AppError('FORBIDDEN', 'Staff ID not found on authenticated user', 403));
     }
 
-    // 1. Query for assignment active right now
+    // 1. Query for assignment active right now. A standing COUNTER_DUTY (the counter desk) never hides a train or station duty:
+    //    it only counts as the current duty for staff who have no other duty at all.
     const [activeRows] = await pool.query(
       `SELECT sa.assign_id, sa.staff_id, sa.schedule_id, sa.station_id, sa.duty_type,
               sa.shift_start, sa.shift_end,
@@ -260,7 +261,7 @@ async function getCurrentAssignment(req, res, next) {
        LEFT JOIN STATION s ON sa.station_id = s.station_id
        LEFT JOIN TRAIN_SCHEDULE ts ON sa.schedule_id = ts.schedule_id
        LEFT JOIN TRAIN t ON ts.train_id = t.train_id
-       WHERE sa.staff_id = ? AND NOW() BETWEEN sa.shift_start AND sa.shift_end
+       WHERE sa.staff_id = ? AND NOW() BETWEEN sa.shift_start AND sa.shift_end AND (sa.duty_type <> 'COUNTER_DUTY' OR NOT EXISTS (SELECT 1 FROM STAFF_ASSIGNMENT o WHERE o.staff_id = sa.staff_id AND o.duty_type <> 'COUNTER_DUTY'))
        ORDER BY sa.shift_end DESC
        LIMIT 1`,
       [staffId]
@@ -283,7 +284,7 @@ async function getCurrentAssignment(req, res, next) {
          LEFT JOIN STATION s ON sa.station_id = s.station_id
          LEFT JOIN TRAIN_SCHEDULE ts ON sa.schedule_id = ts.schedule_id
          LEFT JOIN TRAIN t ON ts.train_id = t.train_id
-         WHERE sa.staff_id = ?
+         WHERE sa.staff_id = ? AND (sa.duty_type <> 'COUNTER_DUTY' OR NOT EXISTS (SELECT 1 FROM STAFF_ASSIGNMENT o WHERE o.staff_id = sa.staff_id AND o.duty_type <> 'COUNTER_DUTY'))
          ORDER BY sa.shift_end DESC
          LIMIT 1`,
         [staffId]
@@ -332,7 +333,7 @@ async function getCurrentAssignment(req, res, next) {
 /**
  * GET /api/staff/schedules/:scheduleId/chart
  * Returns CHART_SNAPSHOT rows for STAFF assigned to that run or ADMIN (Contract 5.1)
- * Refuses with error code BAD_REQUEST if chart is not prepared yet.
+ * Chart not prepared yet: 200 with data [] and chartPrepared:false (no error). Prepared: chartPrepared:true.
  */
 async function getScheduleChart(req, res, next) {
   try {
@@ -380,7 +381,8 @@ async function getScheduleChart(req, res, next) {
     }
 
     if (!schedRows[0].chart_prepared_at) {
-      return next(new AppError('BAD_REQUEST', 'Chart has not been prepared yet for this schedule', 400));
+      // Not an error: the chart simply does not exist yet. 200 with an empty list and chartPrepared:false (the screen shows a friendly state)
+      return res.status(200).json({ success: true, data: [], chartPrepared: false, message: 'The chart has not been prepared yet for this schedule. It is prepared before departure (CHART_HOURS_BEFORE_ORIGIN_DEPARTURE).' });
     }
 
     // Retrieve immutable CHART_SNAPSHOT records

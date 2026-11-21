@@ -13,7 +13,7 @@ export const authService = {
         (u) => u.role === 'ADMIN' && u.email.toLowerCase() === email.toLowerCase()
       );
 
-      if (!admin || password !== 'AdminPassword123!') {
+      if (!admin || password !== 'Demo@123') {
         // Also allow generic successful mock login for testing ease if email includes "admin"
         if (email.toLowerCase().includes('admin') && password.length >= 6) {
           const authUser: AdminAuthUser = {
@@ -149,10 +149,10 @@ export const authService = {
     await simulateLatency();
     // Valid staff credentials (mock)
     const STAFF_CREDENTIALS = [
-      { employeeId: 'staff@railways.gov.in', password: 'StaffPassword123!', name: 'Vikram Singh', staffId: 1 },
-      { employeeId: 'EMP-TC-101', password: 'StaffPassword123!', name: 'Vikram Singh', staffId: 1 },
-      { employeeId: 'EMP-SM-205', password: 'StaffPassword123!', name: 'Sunita Rao', staffId: 2 },
-      { employeeId: 'EMP-TC-108', password: 'StaffPassword123!', name: 'Ramesh Nair', staffId: 3 },
+      { employeeId: 'staff@railways.gov.in', password: 'Demo@123', name: 'Vikram Singh', staffId: 1 },
+      { employeeId: 'EMP-TC-101', password: 'Demo@123', name: 'Vikram Singh', staffId: 1 },
+      { employeeId: 'EMP-SM-205', password: 'Demo@123', name: 'Sunita Rao', staffId: 2 },
+      { employeeId: 'EMP-TC-108', password: 'Demo@123', name: 'Ramesh Nair', staffId: 3 },
     ];
     const match = STAFF_CREDENTIALS.find(
       (c) => c.employeeId.toLowerCase() === employeeId.toLowerCase() && c.password === password

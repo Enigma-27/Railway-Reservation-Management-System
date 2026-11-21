@@ -5,6 +5,11 @@ import { httpRequest } from './http.client';
 import { mockStore, simulateLatency } from './mock.client';
 
 export const scheduleService = {
+  /** Admin: set (minutes > 0) or clear (0) the delay of a run. POST /api/admin/schedules/:id/delay, audited. */
+  async setDelay(scheduleId: number, delayMinutes: number, reason = ''): Promise<{ scheduleId: number; delayMinutes: number; status: string }> {
+    return httpRequest(`/api/admin/schedules/${scheduleId}/delay`, { method: 'POST', body: JSON.stringify({ delayMinutes, reason }) });
+  },
+
   async getSchedules(
     filters?: {
       from_date?: string;

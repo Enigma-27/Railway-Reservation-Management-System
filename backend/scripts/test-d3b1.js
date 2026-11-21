@@ -105,7 +105,7 @@ async function runTests() {
     // 1. Passenger A: user 26009 (has 6 seeded bookings)
     const userALogin = await request('POST', '/api/auth/passenger/login', {
       email: 'user26009_5357@example.com',
-      password: 'Password123!'
+      password: 'Demo@123'
     });
     assert(userALogin.status === 200, 'User A (user 26009) logged in successfully');
     const tokenUserA = userALogin.data.data.token;
@@ -113,15 +113,15 @@ async function runTests() {
     // 2. Passenger B: user 46048 (has 6 different seeded bookings)
     const userBLogin = await request('POST', '/api/auth/passenger/login', {
       email: 'user46048_1965@example.com',
-      password: 'Password123!'
+      password: 'Demo@123'
     });
     assert(userBLogin.status === 200, 'User B (user 46048) logged in successfully');
     const tokenUserB = userBLogin.data.data.token;
 
     // 3. Passenger C: user 50001 (Rahul Sharma - has 1 booking 2849116375)
     const userCLogin = await request('POST', '/api/auth/passenger/login', {
-      email: 'rahul.sharma@example.com',
-      password: 'Password123!'
+      email: 'passenger@rrms.in',
+      password: 'Demo@123'
     });
     assert(userCLogin.status === 200, 'User C (user 50001) logged in successfully');
     const tokenUserC = userCLogin.data.data.token;
@@ -129,17 +129,17 @@ async function runTests() {
     // 4. Staff Member: Ticket Collector (EMP-TC-101)
     const staffLogin = await request('POST', '/api/auth/staff/login', {
       employeeId: 'EMP-TC-101',
-      password: 'StaffPassword123!'
+      password: 'Demo@123'
     });
     assert(staffLogin.status === 200, 'Staff (EMP-TC-101) logged in successfully');
     const tokenStaff = staffLogin.data.data.token;
 
     // 5. Admin: Super Admin
     const adminLogin = await request('POST', '/api/auth/admin/login', {
-      email: 'admin@railways.gov.in',
-      password: 'AdminPassword123!'
+      email: 'admin@rrms.in',
+      password: 'Demo@123'
     });
-    assert(adminLogin.status === 200, 'Admin (admin@railways.gov.in) logged in successfully');
+    assert(adminLogin.status === 200, 'Admin (admin@rrms.in) logged in successfully');
     const tokenAdmin = adminLogin.data.data.token;
 
     // -------------------------------------------------------------------------

@@ -7,8 +7,8 @@ Six diagrams, written in Mermaid (GitHub draws them). They describe the code as 
 ```mermaid
 flowchart LR
     subgraph Browser
-        L["Landing page + the one sign-in<br/>Train Info, Contact Us<br/>(React)"]
-        P["Passenger area<br/>(plain HTML and JS)"]
+        L["Landing page + the one sign-in<br/>Train Info, Live Trains, Contact drawer<br/>(React)"]
+        P["Passenger portal<br/>(React shell + page controller)"]
         S["Staff portal<br/>(React)"]
         A["Admin portal<br/>(React)"]
     end
@@ -127,3 +127,27 @@ sequenceDiagram
 ```
 
 The hold is the `BOOKING` row itself in `PAYMENT_PENDING`; the table `SEAT_HOLD` exists but no code uses it. `sp_release_expired_holds` takes a database lock, so only one release run works at a time. `GET /api/bookings/:pnr/hold` gives the seconds left for the countdown on screen.
+
+## Final round additions
+
+### Admin delay control
+
+```mermaid
+sequenceDiagram
+    participant A as Admin (Schedules, Delay)
+    participant API as POST /api/admin/schedules/:id/delay
+    participant D as TRAIN_SCHEDULE + AUDIT_LOG
+    participant P as Public pages
+    A->>API: delayMinutes (0 clears), reason
+    API->>D: update delay and status, write the audit row
+    API-->>A: DELAYED / ON_TIME, passengers notified
+    P->>D: GET /api/alerts, GET /api/live-trains (same row)
+```
+
+### Public PNR status
+
+`GET /api/pnr-status/:pnr` has no login and returns only the ticket status (never names or contact data). An in-memory limiter allows 15 lookups per minute per address. The landing page and Train Info call it; the full ticket still needs the sign-in.
+
+### demo:clear
+
+`backend/scripts/demo-clear.js` deletes every booking and its dependants in foreign-key order inside one transaction, resets the inventory counters, removes booking notifications from MongoDB and stops with an error unless the inventory audit shows 0 mismatches. `demo:chain` then rebuilds the chain under `chain@rrms.in`.

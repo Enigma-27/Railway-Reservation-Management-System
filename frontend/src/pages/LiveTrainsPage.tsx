@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw, X } from 'lucide-react';
+import { Select } from '../ui/Select';
+import { DatePicker } from '../ui/DatePicker';
+import { SkeletonRows } from '../ui/Skeleton';
+import { EmptyState } from '../ui/EmptyState';
+import { statusChip } from '../ui/status';
+import { toast } from '../ui/toast';
 import { PublicLayout } from '../components/PublicLayout';
 import { useAuth } from '../admin/auth/AuthContext';
 import { HOME_PATH } from '../auth/session';
@@ -15,11 +21,11 @@ const RUN_LABEL: Record<string, string> = {
   NOT_STARTED: 'Not started', RUNNING: 'Running', DELAYED: 'Delayed', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
 };
 const RUN_BADGE: Record<string, string> = {
-  NOT_STARTED: 'rrms-badge-info', RUNNING: 'rrms-badge-success', DELAYED: 'rrms-badge-warning',
-  COMPLETED: 'rrms-badge-info', CANCELLED: 'rrms-badge-danger',
+  NOT_STARTED: 'rrms-badge-info', RUNNING: 'rrms-badge-confirmed', DELAYED: 'rrms-badge-delayed',
+  COMPLETED: 'rrms-badge-info', CANCELLED: 'rrms-badge-cancelled',
 };
 const SEAT_BADGE: Record<string, string> = {
-  AVAILABLE: 'rrms-badge-success', RAC: 'rrms-badge-warning', WL: 'rrms-badge-warning', 'NOT AVAILABLE': 'rrms-badge-danger',
+  AVAILABLE: 'rrms-badge-confirmed', RAC: 'rrms-badge-rac', WL: 'rrms-badge-waiting', 'NOT AVAILABLE': 'rrms-badge-cancelled',
 };
 const TYPES = ['RAJDHANI', 'SHATABDI', 'DURONTO'];
 const CLASS_CODES = ['1A', '2A', '3A', 'SL', 'CC', 'EC', '2S'];
@@ -42,7 +48,7 @@ function OccupancyBar({ pct, label }: { pct: number; label: string }) {
   const safe = Math.max(0, Math.min(100, pct));
   return (
     <div className="live-bar" role="img" aria-label={`${label}: ${safe}% of seats booked`}>
-      <div className="live-bar-fill" style={{ width: `${safe}%` }} />
+      <div className="live-bar-fill" style={{ transform: `scaleX(${safe / 100})` }} />
     </div>
   );
 }
@@ -118,15 +124,22 @@ function DetailPanel({ run, onClose, onBook, canSeeStaff }: { run: LiveTrain; on
   );
 }
 
+export interface LiveTrainsViewProps {
+  /** where the page is shown: the public page, or inside one of the three portals */
+  context: 'public' | 'passenger' | 'staff' | 'admin';
+}
+
 /**
- * /live-trains : every train run of one date with live seat numbers. Public and read only.
- * Staff and admin also see the chart state and the occupancy percentage in the table.
+ * The Live Trains window: every train run of one date with live seat numbers.
+ * Used by the public page (/live-trains) AND by the passenger, staff and admin portals (same data, filters, detail panel,
+ * 15 second auto refresh and "Book this train" button). Inside the passenger portal the button continues straight into
+ * booking; on the public page it goes through the sign-in; staff and admin also see the chart state and occupancy.
  * Data: GET /api/live-trains and GET /api/live-trains/:scheduleId (seat numbers from SCHEDULE_CLASS_INVENTORY).
- * Refreshes by itself every 15 seconds.
  */
-export default function LiveTrainsPage() {
+export function LiveTrainsView({ context }: LiveTrainsViewProps) {
   const { session } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const canSeeStaff = !!session && (session.role === 'STAFF' || session.role === 'ADMIN');
 
   const [stations, setStations] = useState<Station[]>([]);
@@ -136,7 +149,7 @@ export default function LiveTrainsPage() {
   const [type, setType] = useState('');
   const [cls, setCls] = useState('');
   const [status, setStatus] = useState('');
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(params.get('q') || '');
   const [page, setPage] = useState(1);
 
   const [data, setData] = useState<{ trains: LiveTrain[]; total: number; date: string; asOf: string } | null>(null);
@@ -151,6 +164,10 @@ export default function LiveTrainsPage() {
   filters.current = { date, from, to, type, cls, status, q, page };
   const selectedRef = useRef<number | null>(null);
   selectedRef.current = selected;
+
+  // a Ctrl+K train search lands here with ?q=
+  const urlQ = params.get('q');
+  useEffect(() => { if (urlQ !== null) { setQ(urlQ); setPage(1); } }, [urlQ]);
 
   const loadList = useCallback(async () => {
     const f = filters.current;
@@ -206,115 +223,102 @@ export default function LiveTrainsPage() {
   const book = (run: LiveTrain, classCode: string) => {
     const pending: PendingSearch = { fromId: run.origin.stationId, toId: run.destination.stationId, date: run.journeyDate, classType: classCode, trainId: run.trainId };
     try { sessionStorage.setItem(PENDING_SEARCH_KEY, JSON.stringify(pending)); } catch { /* storage off */ }
-    if (session && session.role === 'PASSENGER') navigate(HOME_PATH.PASSENGER);
-    else if (session) window.alert('Booking is for passenger accounts. Sign out, then sign in as Passenger to book.');
+    if (session && session.role === 'PASSENGER') {
+      // inside the passenger portal the button continues straight into booking
+      navigate('/passenger/book', { state: { continuePending: Date.now() } });
+    } else if (session) toast('Booking is for passenger accounts. Sign out, then sign in as Passenger to book.', 'warning');
     else navigate('/', { state: { signInForBooking: true } });
   };
 
   const setFilter = (fn: () => void) => { fn(); setPage(1); setSelected(null); setDetail(null); };
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
+  const stationOpts = [{ value: '', label: 'Any' }, ...stations.map((s) => ({ value: s.stationCode, label: `${s.stationCode} - ${s.stationName}` }))];
+  const typeOpts = [{ value: '', label: 'All types' }, ...TYPES.map((t) => ({ value: t, label: t.charAt(0) + t.slice(1).toLowerCase() }))];
+  const classOpts = [{ value: '', label: 'All classes' }, ...CLASS_CODES.map((c) => ({ value: c, label: c }))];
+  const statusOpts = [{ value: '', label: 'All' }, { value: 'NOT_STARTED', label: 'Not started' }, { value: 'RUNNING', label: 'Running' }, { value: 'DELAYED', label: 'Delayed' }, { value: 'COMPLETED', label: 'Completed' }, { value: 'CANCELLED', label: 'Cancelled' }];
 
   return (
-    <PublicLayout>
-      <main className="info-main live-main">
-        <h1>Live Trains</h1>
-        <p className="info-lead">
+    <div className="live-view" data-context={context}>
+      <div className="live-head">
+        <p className="info-lead" style={{ margin: 0 }}>
           Every train run of the day with its seats right now. Seat numbers come from the booking database and refresh every 15 seconds.
           {data && <> Showing {data.date} (database time {data.asOf}).</>}
         </p>
+        <span className="live-stamp" role="status"><span className="rrms-dot rrms-dot-live" aria-hidden="true" /> Live · last updated {fmtClock(updated)}</span>
+      </div>
 
-        <form className="rrms-card live-filters" onSubmit={(e) => { e.preventDefault(); refreshNow(); }} aria-label="Filters">
-          <label className="rrms-field">Date
-            <input className="rrms-input" type="date" value={date} onChange={(e) => setFilter(() => setDate(e.target.value))} />
-          </label>
-          <label className="rrms-field">From station
-            <select className="rrms-select" value={from} onChange={(e) => setFilter(() => setFrom(e.target.value))}>
-              <option value="">Any</option>
-              {stations.map((s) => <option key={s.stationId} value={s.stationCode}>{s.stationCode} - {s.stationName}</option>)}
-            </select>
-          </label>
-          <label className="rrms-field">To station
-            <select className="rrms-select" value={to} onChange={(e) => setFilter(() => setTo(e.target.value))}>
-              <option value="">Any</option>
-              {stations.map((s) => <option key={s.stationId} value={s.stationCode}>{s.stationCode} - {s.stationName}</option>)}
-            </select>
-          </label>
-          <label className="rrms-field">Train type
-            <select className="rrms-select" value={type} onChange={(e) => setFilter(() => setType(e.target.value))}>
-              <option value="">All types</option>
-              {TYPES.map((t) => <option key={t} value={t}>{t.charAt(0) + t.slice(1).toLowerCase()}</option>)}
-            </select>
-          </label>
-          <label className="rrms-field">Class
-            <select className="rrms-select" value={cls} onChange={(e) => setFilter(() => setCls(e.target.value))}>
-              <option value="">All classes</option>
-              {CLASS_CODES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </label>
-          <label className="rrms-field">Running status
-            <select className="rrms-select" value={status} onChange={(e) => setFilter(() => setStatus(e.target.value))}>
-              <option value="">All</option>
-              <option value="NOT_STARTED">Not started</option>
-              <option value="RUNNING">Running</option>
-              <option value="DELAYED">Delayed</option>
-              <option value="COMPLETED">Completed</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
-          </label>
-          <label className="rrms-field live-search">Train number or name
-            <input className="rrms-input" type="search" placeholder="for example 12221 or Rajdhani" value={q} onChange={(e) => setFilter(() => setQ(e.target.value))} />
-          </label>
-          <div className="live-refresh">
-            <button type="submit" className="rrms-btn rrms-btn-primary" disabled={loading}><RefreshCw size={16} aria-hidden="true" /> {loading ? 'Refreshing...' : 'Refresh'}</button>
-            <span className="live-sub" role="status">Last updated {fmtClock(updated)}</span>
-          </div>
-        </form>
+      <form className="rrms-card live-filters" onSubmit={(e) => { e.preventDefault(); refreshNow(); }} aria-label="Filters" style={{ marginTop: 16 }}>
+        <DatePicker label="Date" value={date || (data?.date ?? '')} onChange={(v) => setFilter(() => setDate(v))} />
+        <Select label="From station" value={from} onChange={(v) => setFilter(() => setFrom(v))} options={stationOpts} />
+        <Select label="To station" value={to} onChange={(v) => setFilter(() => setTo(v))} options={stationOpts} />
+        <Select label="Train type" value={type} onChange={(v) => setFilter(() => setType(v))} options={typeOpts} />
+        <Select label="Class" value={cls} onChange={(v) => setFilter(() => setCls(v))} options={classOpts} />
+        <Select label="Running status" value={status} onChange={(v) => setFilter(() => setStatus(v))} options={statusOpts} />
+        <label className="rrms-field live-search">Train number or name
+          <input className="rrms-input" type="search" placeholder="for example 12221 or Rajdhani" value={q} onChange={(e) => setFilter(() => setQ(e.target.value))} />
+        </label>
+        <div className="live-refresh">
+          <button type="submit" className="rrms-btn rrms-btn-primary" disabled={loading}><RefreshCw size={16} aria-hidden="true" /> {loading ? 'Refreshing...' : 'Refresh'}</button>
+        </div>
+      </form>
 
-        {error && <div className="rrms-alert-error" role="alert" style={{ margin: '12px 0' }}>{error}</div>}
+      {error && <div className="rrms-alert-error" role="alert" style={{ margin: '12px 0' }}>{error}</div>}
 
-        <div className={selected ? 'live-layout with-detail' : 'live-layout'}>
-          <section className="live-list" aria-label="Trains">
-            {data && <p className="live-sub live-count">{data.total} train{data.total === 1 ? '' : 's'} found</p>}
-            {data && data.trains.length === 0 && !error && <div className="rrms-card">No train runs match these filters on this date.</div>}
-            <ul className="live-rows">
-              {data?.trains.map((t) => (
-                <li key={t.scheduleId}>
-                  <button type="button" className={selected === t.scheduleId ? 'live-row active' : 'live-row'} onClick={() => open(t)} aria-pressed={selected === t.scheduleId}>
-                    <span className="live-train">
-                      <strong>{t.trainNumber}</strong> <span>{t.trainName.replace(/ \(\d+\)$/, '')}</span>
-                      <small>{t.origin.code} {t.origin.departureTime} to {t.destination.code} {t.destination.arrivalTime}</small>
-                    </span>
-                    <span className="live-status">
-                      <span className={`rrms-badge ${RUN_BADGE[t.runStatus]}`}>{RUN_LABEL[t.runStatus]}</span>
-                      {t.delayMinutes > 0 && <span className="live-delay">{t.delayMinutes} min late</span>}
-                      {canSeeStaff && <small>{t.chartPrepared ? 'Chart prepared' : 'Chart not prepared'} - {t.occupancyPct}% full</small>}
-                    </span>
-                    <span className="live-chips">
-                      {t.classes.map((c) => (
-                        <span key={c.classCode} className={`rrms-badge ${SEAT_BADGE[c.status]}`}>{c.classCode} {classChip(c)}</span>
-                      ))}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {data && pages > 1 && (
-              <div className="live-pager">
-                <button type="button" className="rrms-btn rrms-btn-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
-                <span>Page {page} of {pages}</span>
-                <button type="button" className="rrms-btn rrms-btn-secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
-              </div>
-            )}
-          </section>
-
-          {selected && (
-            <div className="live-detail-wrap">
-              {detailError && <div className="rrms-alert-error" role="alert">{detailError}</div>}
-              {!detail && !detailError && <div className="rrms-card">Loading seat details...</div>}
-              {detail && <DetailPanel run={detail} onClose={() => { setSelected(null); setDetail(null); }} onBook={book} canSeeStaff={canSeeStaff} />}
+      <div className={selected ? 'live-layout with-detail' : 'live-layout'}>
+        <section className="live-list" aria-label="Trains">
+          {!data && !error && <SkeletonRows rows={6} h={72} label="Loading live trains" />}
+          {data && <p className="live-sub live-count">{data.total} train{data.total === 1 ? '' : 's'} found</p>}
+          {data && data.trains.length === 0 && !error && <div className="rrms-card"><EmptyState art="train" title="No trains match" text="No train runs match these filters on this date. Try another date or clear a filter." /></div>}
+          <ul className="live-rows">
+            {data?.trains.map((t) => (
+              <li key={t.scheduleId}>
+                <button type="button" className={selected === t.scheduleId ? 'live-row active' : 'live-row'} onClick={() => open(t)} aria-pressed={selected === t.scheduleId}>
+                  <span className="live-train">
+                    <strong>{t.trainNumber}</strong> <span>{t.trainName.replace(/ \(\d+\)$/, '')}</span>
+                    <small className="mono">{t.origin.code} {t.origin.departureTime} to {t.destination.code} {t.destination.arrivalTime}</small>
+                  </span>
+                  <span className="live-status">
+                    <span className={`rrms-badge ${RUN_BADGE[t.runStatus]}`}>{RUN_LABEL[t.runStatus]}</span>
+                    {t.delayMinutes > 0 && <span className="live-delay">{t.delayMinutes} min late</span>}
+                    {canSeeStaff && <small>{t.chartPrepared ? 'Chart prepared' : 'Chart not prepared'} - {t.occupancyPct}% full</small>}
+                  </span>
+                  <span className="live-chips">
+                    {t.classes.map((c) => (
+                      <span key={c.classCode} className={`rrms-badge ${SEAT_BADGE[c.status] || statusChip(c.status)}`}>{c.classCode} {classChip(c)}</span>
+                    ))}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {data && pages > 1 && (
+            <div className="live-pager">
+              <button type="button" className="rrms-btn rrms-btn-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+              <span>Page {page} of {pages}</span>
+              <button type="button" className="rrms-btn rrms-btn-secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
             </div>
           )}
-        </div>
+        </section>
+
+        {selected && (
+          <div className="live-detail-wrap">
+            {detailError && <div className="rrms-alert-error" role="alert">{detailError}</div>}
+            {!detail && !detailError && <div className="rrms-card"><SkeletonRows rows={4} h={48} label="Loading seat details" /></div>}
+            {detail && <DetailPanel run={detail} onClose={() => { setSelected(null); setDetail(null); }} onBook={book} canSeeStaff={canSeeStaff} />}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** /live-trains : the public, read only page (inside the public layout). */
+export default function LiveTrainsPage() {
+  return (
+    <PublicLayout title="Live Trains">
+      <main className="info-main live-main" id="main">
+        <h1 className="t-display">Live <em>Trains</em></h1>
+        <LiveTrainsView context="public" />
       </main>
     </PublicLayout>
   );

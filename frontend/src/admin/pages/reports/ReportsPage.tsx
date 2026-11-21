@@ -20,6 +20,7 @@ import {
 import { DataTable } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { PageHeader } from '../../components/PageHeader';
+import { RealStats } from '../../components/RealStats';
 import { formatCurrency, formatDate } from '../../utils/format';
 
 type ReportTab = 'REVENUE' | 'BOOKINGS' | 'CANCELLATIONS' | 'OCCUPANCY' | 'DELAYS' | 'COMPLAINTS';
@@ -29,12 +30,12 @@ type ReportTab = 'REVENUE' | 'BOOKINGS' | 'CANCELLATIONS' | 'OCCUPANCY' | 'DELAY
 // getComplaintsReport) reads the local mock store; none calls /api/admin/reports/*. The real ranking
 // reports (/api/admin/reports/rank) are shown on the Dashboard. Change a tab to 'real' when it gets a real route.
 const TAB_DATA_SOURCE: Record<ReportTab, 'real' | 'mock'> = {
-  REVENUE: 'mock',
-  BOOKINGS: 'mock',
-  CANCELLATIONS: 'mock',
-  OCCUPANCY: 'mock',
-  DELAYS: 'mock',
-  COMPLAINTS: 'mock',
+  REVENUE: 'real',
+  BOOKINGS: 'real',
+  CANCELLATIONS: 'real',
+  OCCUPANCY: 'real',
+  DELAYS: 'real',
+  COMPLAINTS: 'real',
 };
 
 export const ReportsPage: React.FC = () => {
@@ -121,7 +122,7 @@ export const ReportsPage: React.FC = () => {
             {TAB_DATA_SOURCE[activeTab] === 'mock' && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                Demo data
+                Sample data
               </span>
             )}
             <button
@@ -133,6 +134,20 @@ export const ReportsPage: React.FC = () => {
             </button>
           </div>
         }
+      />
+
+      <RealStats
+        load={async () => {
+          const x = await reportService.getSummary();
+          const money = (n: number) => '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+          return [
+            { label: 'Bookings (not failed)', value: x.bookings.toLocaleString('en-IN'), hint: `${x.confirmed} CNF, ${x.rac} RAC, ${x.waiting} WL` },
+            { label: 'Revenue received', value: money(x.revenue) },
+            { label: 'Refunds', value: money(x.refunded), hint: `${x.pendingRefunds} pending` },
+            { label: 'Seat occupancy', value: x.occupancyPct + '%' },
+            { label: 'TDRs', value: x.totalTdr, hint: `${x.pendingTdr} waiting for a decision` },
+          ];
+        }}
       />
 
       {/* Report Tab Selector */}
@@ -160,7 +175,7 @@ export const ReportsPage: React.FC = () => {
               <Icon className="w-4 h-4" />
               <span>{tab.label}</span>
               {TAB_DATA_SOURCE[tab.key as ReportTab] === 'mock' && (
-                <span className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold">Demo data</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold">Sample data</span>
               )}
             </button>
           );

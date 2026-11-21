@@ -80,7 +80,9 @@ export const publicApi = {
   train: (id: number | string) => get<TrainDetail>(`/api/trains/${id}`),
   runStatus: (id: number | string, date: string) => get<RunStatus>(`/api/trains/${id}/run-status?journeyDate=${encodeURIComponent(date)}`),
   alerts: () => get<ServiceAlert[]>('/api/alerts'),
-  /** PNR status needs a signed-in user: a passenger sees only their own PNR, staff and admin see any. */
+  /** Public PNR status: status only, no names or personal data, rate limited (GET /api/pnr-status/:pnr). No sign-in needed. */
+  pnrStatus: (pnr: string) => get<any>(`/api/pnr-status/${pnr}`),
+  /** Full PNR details need a signed-in user: a passenger sees only their own PNR, staff and admin see any. */
   pnr: (pnr: string) => {
     const s = getSession();
     if (!s) throw new Error('Please sign in to check a PNR.');
@@ -96,4 +98,15 @@ export function todayIso(offsetDays = 0): string {
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Numbers for the landing page stat strip, worked out from GET /api/live-trains (today's runs). */
+export interface LiveStats { trainsToday: number; seatsAvailable: number; onTimePct: number; asOf: string }
+export async function liveStats(): Promise<LiveStats> {
+  const res = await publicApi.liveTrains({ pageSize: 100 });
+  const running = res.trains.filter((t) => t.runStatus !== 'CANCELLED');
+  const bookable = running.filter((t) => t.runStatus !== 'COMPLETED' && !t.departed);
+  const seats = bookable.reduce((sum, t) => sum + t.classes.reduce((s, c) => s + c.availableSeats, 0), 0);
+  const onTime = running.length ? running.filter((t) => t.delayMinutes === 0 && t.runStatus !== 'DELAYED').length / running.length : 1;
+  return { trainsToday: running.length, seatsAvailable: seats, onTimePct: Math.round(onTime * 1000) / 10, asOf: res.asOf };
 }

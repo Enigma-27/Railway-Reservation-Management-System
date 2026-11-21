@@ -184,7 +184,10 @@ async function loginStaff(req, res, next) {
       throw new AppError('VALIDATION_ERROR', 'Employee ID or email, and password are required', 400);
     }
 
-    const id = (employeeId || email || '').trim();
+    let id = (employeeId || email || '').trim();
+    // short alias: TC101 means EMP-TC-101 (the stored employee id); the long form keeps working
+    const alias = /^TC(\d+)$/i.exec(id);
+    if (alias) id = 'EMP-TC-' + alias[1];
     let rows;
     if (id.includes('@')) {
       [rows] = await pool.query(
